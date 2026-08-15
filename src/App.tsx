@@ -337,7 +337,7 @@ function LibraryScreen({
                   onClick={() => toggleBook(book.id)}
                   type="button"
                 >
-                  <span className="block text-2xl leading-tight text-neutral-950">
+                  <span className="block text-xl leading-tight text-neutral-950 min-[390px]:text-2xl">
                     {loadedBook?.data?.title ?? book.title}
                     <span
                       aria-hidden={!isOpen}
@@ -348,7 +348,7 @@ function LibraryScreen({
                       {isOpen ? ROW_MARKERS[rowNumber] : ROW_MARKERS[0]}
                     </span>
                   </span>
-                  <span className="mt-1 block text-base text-neutral-600">
+                  <span className="mt-1 block text-sm text-neutral-600 min-[390px]:text-base">
                     {loadedBook?.data?.author ?? book.author}
                   </span>
                   <span
