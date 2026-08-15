@@ -642,29 +642,39 @@ function createArticleRows({
     },
     {
       id: "library",
-      pages: chunkBooks(books, LIBRARY_BOOKS_PER_PAGE, { keepEmpty: true }).map(
-        (books, index, pages) => ({
-          id: `books-${index + 1}`,
+      initialPageId: "books-1",
+      pages: [
+        {
+          id: "upload",
           render: () => (
-            <LibraryScreen
-              books={books}
-              pageNumber={index + 1}
-              pageTotal={pages.length}
-              activePageByRowId={activePageByRowId}
-              bookMetadataEdits={bookMetadataEdits}
-              loadedBooks={loadedBooks}
-              openBookSettings={openBookSettings}
-              openBookIds={openBookIds}
-              paginatedBooks={paginatedBooks}
-              savedPageByBookId={savedPageByBookId}
-              toggleBook={toggleBook}
-              uploadError={uploadError}
+            <UploadBookScreen
               uploadBooks={uploadBooks}
+              uploadError={uploadError}
               uploading={isUploadingBooks}
             />
           )
-        })
-      )
+        },
+        ...chunkBooks(books, LIBRARY_BOOKS_PER_PAGE, { keepEmpty: true }).map(
+          (books, index, pages) => ({
+            id: `books-${index + 1}`,
+            render: () => (
+              <LibraryScreen
+                books={books}
+                pageNumber={index + 1}
+                pageTotal={pages.length}
+                activePageByRowId={activePageByRowId}
+                bookMetadataEdits={bookMetadataEdits}
+                loadedBooks={loadedBooks}
+                openBookSettings={openBookSettings}
+                openBookIds={openBookIds}
+                paginatedBooks={paginatedBooks}
+                savedPageByBookId={savedPageByBookId}
+                toggleBook={toggleBook}
+              />
+            )
+          })
+        )
+      ]
     },
     ...openBookIds
       .map((bookId) => books.find((book) => book.id === bookId))
@@ -1017,6 +1027,43 @@ function BookMetadataDialog({
   );
 }
 
+function UploadBookScreen({
+  uploadBooks,
+  uploadError,
+  uploading
+}: {
+  uploadBooks: (files: File[]) => Promise<void>;
+  uploadError: string | null;
+  uploading: boolean;
+}) {
+  return (
+    <div className="flex min-h-full items-center px-5 py-8 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-12">
+      <div className="mx-auto w-full max-w-3xl text-center">
+        <label className="inline-block cursor-pointer text-3xl leading-tight text-neutral-950 outline-none focus-within:text-neutral-500 dark:text-neutral-100 dark:focus-within:text-neutral-400 sm:text-5xl">
+          <span>{uploading ? "Importing" : "Upload book"}</span>
+          <input
+            accept=".epub,application/epub+zip"
+            className="sr-only"
+            disabled={uploading}
+            multiple
+            onChange={(event) => {
+              const files = Array.from(event.target.files ?? []);
+              event.target.value = "";
+              void uploadBooks(files);
+            }}
+            type="file"
+          />
+        </label>
+        {uploadError ? (
+          <p className="mx-auto mt-5 max-w-md text-base text-neutral-500 dark:text-neutral-400">
+            {uploadError}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function LibraryScreen({
   activePageByRowId,
   bookMetadataEdits,
@@ -1028,10 +1075,7 @@ function LibraryScreen({
   pageTotal,
   paginatedBooks,
   savedPageByBookId,
-  toggleBook,
-  uploadError,
-  uploadBooks,
-  uploading
+  toggleBook
 }: {
   activePageByRowId: Record<string, string>;
   bookMetadataEdits: Record<string, BookMetadataEdit>;
@@ -1044,9 +1088,6 @@ function LibraryScreen({
   paginatedBooks: Record<string, PaginatedBook>;
   savedPageByBookId: Record<string, string>;
   toggleBook: (bookId: string) => void;
-  uploadError: string | null;
-  uploadBooks: (files: File[]) => Promise<void>;
-  uploading: boolean;
 }) {
   const contentsProgress =
     pageTotal > 1 ? ((pageNumber - 1) / (pageTotal - 1)) * 100 : 0;
@@ -1120,26 +1161,6 @@ function LibraryScreen({
               style={{ width: `${contentsProgress}%` }}
             />
           </span>
-          <label className="mt-4 block cursor-pointer text-base text-neutral-500 outline-none focus-within:text-neutral-950 dark:text-neutral-400 dark:focus-within:text-neutral-100">
-            <span>{uploading ? "Importing" : "Import book"}</span>
-            <input
-              accept=".epub,application/epub+zip"
-              className="sr-only"
-              disabled={uploading}
-              multiple
-              onChange={(event) => {
-                const files = Array.from(event.target.files ?? []);
-                event.target.value = "";
-                void uploadBooks(files);
-              }}
-              type="file"
-            />
-          </label>
-          {uploadError ? (
-            <p className="mx-auto mt-3 max-w-md text-sm text-neutral-500 dark:text-neutral-400">
-              {uploadError}
-            </p>
-          ) : null}
         </header>
 
         <ol>
