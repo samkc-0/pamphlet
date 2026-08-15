@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { BOOKS, type BookSource } from "@/books";
 import {
@@ -68,6 +68,11 @@ type LoadedBook = {
   loading: boolean;
 };
 
+type PaginatedBook = {
+  pages: ReaderPage[];
+  viewportKey: string;
+};
+
 function App() {
   const [openBookIds, setOpenBookIds] = useState(() =>
     BOOKS.map((book) => book.id)
@@ -76,7 +81,7 @@ function App() {
     {}
   );
   const [paginatedBooks, setPaginatedBooks] = useState<
-    Record<string, ReaderPage[]>
+    Record<string, PaginatedBook>
   >({});
   const [viewportKey, setViewportKey] = useState(() => getViewportKey());
 
@@ -127,13 +132,15 @@ function App() {
         const loadedBook = loadedBooks[book.id];
 
         if (!openBookIds.includes(book.id) || !loadedBook?.data) continue;
+        if (paginatedBooks[book.id]?.viewportKey === viewportKey) continue;
 
+        await waitForIdle();
         const pages = await paginateBookByLayout(loadedBook.data);
 
         if (!cancelled) {
           setPaginatedBooks((current) => ({
             ...current,
-            [book.id]: pages
+            [book.id]: { pages, viewportKey }
           }));
         }
       }
@@ -144,7 +151,17 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [loadedBooks, openBookIds, viewportKey]);
+  }, [loadedBooks, openBookIds, paginatedBooks, viewportKey]);
+
+  const toggleBook = useCallback((bookId: string) => {
+    window.setTimeout(() => {
+      setOpenBookIds((current) =>
+        current.includes(bookId)
+          ? current.filter((id) => id !== bookId)
+          : [...current, bookId]
+      );
+    }, 0);
+  }, []);
 
   const rows = useMemo(
     () =>
@@ -152,15 +169,9 @@ function App() {
         loadedBooks,
         openBookIds,
         paginatedBooks,
-        toggleBook: (bookId) => {
-          setOpenBookIds((current) =>
-            current.includes(bookId)
-              ? current.filter((id) => id !== bookId)
-              : [...current, bookId]
-          );
-        }
+        toggleBook
       }),
-    [loadedBooks, openBookIds, paginatedBooks]
+    [loadedBooks, openBookIds, paginatedBooks, toggleBook]
   );
 
   return <SwipeWorkspace rows={rows} />;
@@ -174,7 +185,7 @@ function createArticleRows({
 }: {
   loadedBooks: Record<string, LoadedBook>;
   openBookIds: string[];
-  paginatedBooks: Record<string, ReaderPage[]>;
+  paginatedBooks: Record<string, PaginatedBook>;
   toggleBook: (bookId: string) => void;
 }): WorkspaceRow[] {
   return [
@@ -195,7 +206,7 @@ function createArticleRows({
       ]
     },
     ...BOOKS.filter((book) => openBookIds.includes(book.id)).map((book) =>
-      createBookRow(book, loadedBooks[book.id], paginatedBooks[book.id])
+      createBookRow(book, loadedBooks[book.id], paginatedBooks[book.id]?.pages)
     )
   ];
 }
@@ -384,6 +395,19 @@ function BookStatusScreen({
 
 function getViewportKey() {
   return `${window.innerWidth}x${window.innerHeight}`;
+}
+
+function waitForIdle() {
+  return new Promise<void>((resolve) => {
+    const requestIdleCallback = window.requestIdleCallback;
+
+    if (requestIdleCallback) {
+      requestIdleCallback(() => resolve(), { timeout: 500 });
+      return;
+    }
+
+    globalThis.setTimeout(resolve, 0);
+  });
 }
 
 export default App;
