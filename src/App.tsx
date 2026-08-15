@@ -422,7 +422,7 @@ function LibraryScreen({
               <li className="py-3 sm:py-4" key={book.id}>
                 <button
                   aria-pressed={isOpen}
-                  className="block w-full px-2 text-center outline-none focus-visible:underline"
+                  className="block w-full px-2 text-center outline-none focus-visible:text-neutral-500"
                   onClick={() => toggleBook(book.id)}
                   type="button"
                 >
