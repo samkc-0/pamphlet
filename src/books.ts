@@ -22,6 +22,6 @@ export const BOOKS: BookSource[] = [
     author: "Isabel Allende",
     id: "la-casa-de-los-espiritus",
     title: "La casa de los espiritus",
-    url: "/books/La%20casa%20de%20los%20esp%C3%ADritus%20--%20Isabel%20Allende%20%5BAllende%2C%20Isabel%5D%20--%202011%20--%20Piol%C3%ADn_39%20--%202d29f95203c434220786eb08733d9719%20--%20Anna%E2%80%99s%20Archive%20(1).epub"
+    url: "/books/La%20casa%20de%20los%20esp%C3%ADritus%20--%20Isabel%20Allende%20%5BAllende%2C%20Isabel%5D%20--%202011%20--%20Piol%C3%ADn_39%20--%202d29f95203c434220786eb08733d9719%20--%20Anna%E2%80%99s%20Archive%20%281%29.epub"
   }
 ];

@@ -25,6 +25,12 @@ export async function loadEpub(url: string): Promise<EpubBook> {
     throw new Error(`Failed to load EPUB: ${response.status}`);
   }
 
+  const contentType = response.headers.get("content-type") ?? "";
+
+  if (contentType.includes("text/html")) {
+    throw new Error("Expected an EPUB file, but the server returned HTML.");
+  }
+
   const zip = await JSZip.loadAsync(await response.arrayBuffer());
   const containerXml = await readZipText(zip, "META-INF/container.xml");
   const rootfilePath = parseRootfilePath(containerXml);
