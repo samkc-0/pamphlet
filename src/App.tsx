@@ -499,11 +499,11 @@ function ReaderScreen({
 
   return (
     <article className="grid h-full grid-rows-[auto_1fr] overflow-hidden bg-white px-5 py-5 sm:px-10 sm:py-7">
-      <header className="mx-auto flex w-full max-w-3xl min-w-0 items-baseline justify-between gap-4 border-b border-neutral-200 pb-3 text-sm text-neutral-500">
+      <header className="mx-auto flex w-full max-w-3xl min-w-0 items-baseline justify-between gap-4 border-neutral-200 pb-3 text-sm text-neutral-500">
         <div className="min-w-0 overflow-hidden">
-          <span className="truncate text-neutral-900">{title}</span>
-          <span className="mx-2 text-neutral-300">/</span>
-          <span className="truncate">{author}</span>
+          <span className="truncate text-neutral-500">{title}</span>
+          <span className="mx-2 text-neutral-500">⋅</span>
+          <span className="truncate text-neutral-500">{author}</span>
         </div>
         <label className="flex shrink-0 items-baseline gap-1 text-neutral-500">
           <span className="sr-only">Page</span>
