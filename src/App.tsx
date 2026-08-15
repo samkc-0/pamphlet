@@ -278,32 +278,25 @@ function LibraryScreen({
                 .findIndex((candidate) => candidate.id === book.id) + 1;
 
             return (
-              <li
-                className="cursor-pointer py-4 outline-none transition-colors hover:bg-neutral-50 focus:bg-neutral-50"
-                key={book.id}
-                onClick={() => toggleBook(book.id)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    toggleBook(book.id);
-                  }
-                }}
-                role="button"
-                tabIndex={0}
-              >
-                <div className="px-2">
-                  <div className="text-2xl leading-tight text-neutral-950">
+              <li className="py-4" key={book.id}>
+                <button
+                  aria-pressed={isOpen}
+                  className="block w-full px-2 text-left outline-none focus-visible:underline"
+                  onClick={() => toggleBook(book.id)}
+                  type="button"
+                >
+                  <span className="block text-2xl leading-tight text-neutral-950">
                     {loadedBook?.data?.title ?? book.title}
                     {isOpen ? (
                       <span className="ml-2 text-neutral-500">
                         {ROW_MARKERS[rowNumber]}
                       </span>
                     ) : null}
-                  </div>
-                  <div className="mt-1 text-base text-neutral-600">
+                  </span>
+                  <span className="mt-1 block text-base text-neutral-600">
                     {loadedBook?.data?.author ?? book.author}
-                  </div>
-                </div>
+                  </span>
+                </button>
               </li>
             );
           })}
