@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, MouseEvent, PointerEvent } from "react";
 import { Settings } from "lucide-react";
 
-import { BOOKS, type BookSource } from "@/books";
+import type { BookSource } from "@/books";
 import {
   SwipeWorkspace,
   type WorkspaceRow
 } from "@/components/swipe-workspace";
+import { loadBookCatalog } from "@/lib/books-db";
 import { loadEpub, type EpubBook } from "@/lib/epub";
 import {
   readCachedPagination,
@@ -113,6 +114,9 @@ const LANGUAGE_CHOICES = [
 ];
 
 function App() {
+  const [books, setBooks] = useState<BookSource[]>([]);
+  const [booksError, setBooksError] = useState<string | null>(null);
+  const [isBookCatalogLoaded, setIsBookCatalogLoaded] = useState(false);
   const [isStateLoaded, setIsStateLoaded] = useState(false);
   const [isSyncingState, setIsSyncingState] = useState(false);
   const [defaultPersistedState] = useState(getDefaultPersistedAppState);
@@ -163,9 +167,52 @@ function App() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+
+    loadBookCatalog()
+      .then((books) => {
+        if (cancelled) return;
+
+        setBooks(books);
+        setBooksError(null);
+        setIsBookCatalogLoaded(true);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+
+        setBooksError(
+          error instanceof Error
+            ? error.message
+            : "Failed to load book catalog."
+        );
+        setIsBookCatalogLoaded(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isBookCatalogLoaded || books.length === 0) return;
+
+    const knownBookIds = new Set(books.map((book) => book.id));
+
+    setOpenBookIds((current) => {
+      const next = current.filter((bookId) => knownBookIds.has(bookId));
+      return arraysEqual(current, next) ? current : next;
+    });
+    setActiveRowId((current) =>
+      current === "settings" || current === "library" || knownBookIds.has(current)
+        ? current
+        : "library"
+    );
+  }, [books, isBookCatalogLoaded]);
+
+  useEffect(() => {
     if (!isStateLoaded) return;
 
-    for (const book of BOOKS) {
+    for (const book of books) {
       if (!openBookIds.includes(book.id) || loadedBooks[book.id]) continue;
 
       setLoadedBooks((current) => ({
@@ -190,7 +237,7 @@ function App() {
           }));
         });
     }
-  }, [isStateLoaded, loadedBooks, openBookIds]);
+  }, [books, isStateLoaded, loadedBooks, openBookIds]);
 
   useEffect(() => {
     const onResize = () => setViewportKey(getViewportKey());
@@ -250,7 +297,7 @@ function App() {
     let cancelled = false;
 
     async function paginateOpenBooks() {
-      for (const book of BOOKS) {
+      for (const book of books) {
         const loadedBook = loadedBooks[book.id];
 
         if (!openBookIds.includes(book.id) || !loadedBook?.data) continue;
@@ -287,7 +334,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [isStateLoaded, loadedBooks, openBookIds, paginatedBooks, viewportKey]);
+  }, [books, isStateLoaded, loadedBooks, openBookIds, paginatedBooks, viewportKey]);
 
   const toggleBook = useCallback((bookId: string) => {
     window.setTimeout(() => {
@@ -335,7 +382,7 @@ function App() {
   );
 
   const editingBook = editingBookId
-    ? BOOKS.find((book) => book.id === editingBookId)
+    ? books.find((book) => book.id === editingBookId)
     : undefined;
   const editingLoadedBook = editingBook
     ? loadedBooks[editingBook.id]
@@ -361,6 +408,7 @@ function App() {
     () =>
       createArticleRows({
         animationsEnabled,
+        books,
         bookMetadataEdits,
         isDarkMode,
         isSyncingState,
@@ -378,6 +426,7 @@ function App() {
     [
       activePageByRowId,
       animationsEnabled,
+      books,
       bookMetadataEdits,
       isDarkMode,
       isSyncingState,
@@ -392,10 +441,18 @@ function App() {
     ]
   );
 
-  if (!isStateLoaded) {
+  if (!isStateLoaded || !isBookCatalogLoaded) {
     return (
       <div className={isDarkMode ? "dark" : ""}>
         <SyncingScreen animationsEnabled={animationsEnabled} />
+      </div>
+    );
+  }
+
+  if (booksError) {
+    return (
+      <div className={isDarkMode ? "dark" : ""}>
+        <CatalogErrorScreen error={booksError} />
       </div>
     );
   }
@@ -416,7 +473,7 @@ function App() {
           setSavedPageByBookId((current) => {
             const next = { ...current };
 
-            for (const book of BOOKS) {
+            for (const book of books) {
               const pageId = activePageByRowId[book.id];
 
               if (pageId && pageId !== "status") {
@@ -452,6 +509,7 @@ function App() {
 function createArticleRows({
   activePageByRowId,
   animationsEnabled,
+  books,
   bookMetadataEdits,
   isDarkMode,
   isSyncingState,
@@ -467,6 +525,7 @@ function createArticleRows({
 }: {
   activePageByRowId: Record<string, string>;
   animationsEnabled: boolean;
+  books: BookSource[];
   bookMetadataEdits: Record<string, BookMetadataEdit>;
   isDarkMode: boolean;
   isSyncingState: boolean;
@@ -499,7 +558,8 @@ function createArticleRows({
     },
     {
       id: "library",
-      pages: chunkBooks(BOOKS, LIBRARY_BOOKS_PER_PAGE).map((books, index, pages) => ({
+      pages: chunkBooks(books, LIBRARY_BOOKS_PER_PAGE, { keepEmpty: true }).map(
+        (books, index, pages) => ({
           id: `books-${index + 1}`,
           render: () => (
             <LibraryScreen
@@ -516,10 +576,11 @@ function createArticleRows({
               toggleBook={toggleBook}
             />
           )
-        }))
+        })
+      )
     },
     ...openBookIds
-      .map((bookId) => BOOKS.find((book) => book.id === bookId))
+      .map((bookId) => books.find((book) => book.id === bookId))
       .filter((book): book is BookSource => Boolean(book))
       .map((book) =>
         createBookRow(
@@ -673,6 +734,21 @@ function LoadingScreen({
         📖
       </span>
       <span className="sr-only">{label}</span>
+    </main>
+  );
+}
+
+function CatalogErrorScreen({ error }: { error: string }) {
+  return (
+    <main className="flex h-dvh w-screen items-center justify-center bg-white px-6 text-center text-neutral-950 dark:bg-neutral-950 dark:text-neutral-100">
+      <div>
+        <p className="text-sm uppercase tracking-[0.18em] text-neutral-500 dark:text-neutral-400">
+          Library unavailable
+        </p>
+        <p className="mt-3 max-w-md text-lg text-neutral-600 dark:text-neutral-400">
+          {error}
+        </p>
+      </div>
     </main>
   );
 }
@@ -1253,13 +1329,11 @@ function normalizePersistedAppState(
 function getPersistedOpenBookIds(value: unknown) {
   if (!Array.isArray(value)) return [];
 
-  const knownBookIds = new Set(BOOKS.map((book) => book.id));
   const openBookIds: string[] = [];
 
   for (const bookId of value) {
     if (
       typeof bookId === "string" &&
-      knownBookIds.has(bookId) &&
       !openBookIds.includes(bookId)
     ) {
       openBookIds.push(bookId);
@@ -1309,6 +1383,13 @@ function getStringRecord(value: unknown) {
 
 function isKnownWorkspaceRowId(rowId: string, openBookIds: string[]) {
   return rowId === "settings" || rowId === "library" || openBookIds.includes(rowId);
+}
+
+function arraysEqual(left: string[], right: string[]) {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1362,11 +1443,19 @@ function waitForIdle() {
   });
 }
 
-function chunkBooks(books: BookSource[], size: number) {
+function chunkBooks(
+  books: BookSource[],
+  size: number,
+  options: { keepEmpty?: boolean } = {}
+) {
   const chunks: BookSource[][] = [];
 
   for (let index = 0; index < books.length; index += size) {
     chunks.push(books.slice(index, index + size));
+  }
+
+  if (options.keepEmpty && chunks.length === 0) {
+    chunks.push([]);
   }
 
   return chunks;

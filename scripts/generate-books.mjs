@@ -1,9 +1,13 @@
-import { copyFile, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 const assetDirectory = path.resolve("public/book-assets");
 const booksDirectory = path.resolve("public/books");
+const databasePath = path.resolve("public/books.sqlite");
 const outputPath = path.resolve("src/books.ts");
+const sqlWasmInputPath = path.resolve("node_modules/sql.js/dist/sql-wasm.wasm");
+const sqlWasmOutputPath = path.resolve("public/sql-wasm.wasm");
 
 const files = (await readdir(booksDirectory))
   .filter((file) => file.toLowerCase().endsWith(".epub"))
@@ -29,6 +33,7 @@ const books = await Promise.all(files.map(async (file) => {
   return {
     author,
     id,
+    sourceFile: file,
     title,
     url: `/book-assets/${alias}`
   };
@@ -41,11 +46,14 @@ const source = `export type BookSource = {
   url: string;
 };
 
-export const BOOKS: BookSource[] = ${JSON.stringify(books, null, 2)};
+export const BOOKS_DATABASE_URL = "/books.sqlite";
+export const SQL_WASM_URL = "/sql-wasm.wasm";
 `;
 
+await writeBooksDatabase(books);
+await copyFile(sqlWasmInputPath, sqlWasmOutputPath);
 await writeFile(outputPath, source);
-console.log(`Generated ${path.relative(process.cwd(), outputPath)} with ${books.length} books.`);
+console.log(`Generated ${path.relative(process.cwd(), databasePath)} with ${books.length} books.`);
 
 function parseBookName(file) {
   const name = file.replace(/\.epub$/i, "");
@@ -131,4 +139,63 @@ function uniqueSlug(slug, usedSlugs) {
 
   usedSlugs.add(candidate);
   return candidate;
+}
+
+async function writeBooksDatabase(books) {
+  await unlink(databasePath).catch((error) => {
+    if (error?.code !== "ENOENT") {
+      throw error;
+    }
+  });
+
+  const database = new DatabaseSync(databasePath);
+
+  try {
+    database.exec(`
+      PRAGMA journal_mode = DELETE;
+      PRAGMA user_version = 1;
+
+      CREATE TABLE books (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        author TEXT NOT NULL,
+        url TEXT NOT NULL,
+        source_file TEXT NOT NULL,
+        sort_index INTEGER NOT NULL
+      );
+
+      CREATE INDEX books_sort_index ON books(sort_index);
+    `);
+
+    const insertBook = database.prepare(`
+      INSERT INTO books (
+        id,
+        title,
+        author,
+        url,
+        source_file,
+        sort_index
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    database.exec("BEGIN");
+
+    for (const [index, book] of books.entries()) {
+      insertBook.run(
+        book.id,
+        book.title,
+        book.author,
+        book.url,
+        book.sourceFile,
+        index
+      );
+    }
+
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  } finally {
+    database.close();
+  }
 }
