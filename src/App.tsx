@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BOOKS, type BookSource } from "@/books";
 import {
@@ -97,6 +97,7 @@ function App() {
     Record<string, string>
   >({});
   const [pageJump, setPageJump] = useState<PageJump | null>(null);
+  const pageJumpSerial = useRef(0);
   const [viewportKey, setViewportKey] = useState(() => getViewportKey());
 
   useEffect(() => {
@@ -180,10 +181,12 @@ function App() {
   }, []);
 
   const jumpToBookPage = useCallback((bookId: string, pageId: string) => {
+    pageJumpSerial.current += 1;
+
     setPageJump({
       pageId,
       rowId: bookId,
-      serial: Date.now()
+      serial: pageJumpSerial.current
     });
   }, []);
 

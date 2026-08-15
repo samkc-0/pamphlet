@@ -67,6 +67,7 @@ export function SwipeWorkspace({
   >(() => getInitialPageMap(rows));
   const [transition, setTransition] = useState<ScreenTransition | null>(null);
   const pointerStart = useRef<Point | null>(null);
+  const processedPageJumpSerial = useRef<number | null>(null);
   const transitionTimer = useRef<number | null>(null);
 
   const rowIndex = Math.max(
@@ -112,11 +113,14 @@ export function SwipeWorkspace({
 
   useEffect(() => {
     if (!pageJump) return;
+    if (processedPageJumpSerial.current === pageJump.serial) return;
 
     const row = rows.find((candidate) => candidate.id === pageJump.rowId);
     const page = row?.pages.find((candidate) => candidate.id === pageJump.pageId);
 
     if (!row || !page) return;
+
+    processedPageJumpSerial.current = pageJump.serial;
 
     setActivePageByRowId((current) =>
       current[row.id] === page.id
