@@ -646,10 +646,54 @@ function LoadingScreen({ label }: { label: string }) {
       aria-label={label}
       className="fixed inset-0 z-40 flex h-dvh w-screen items-center justify-center bg-white px-6 text-center text-neutral-950 dark:bg-neutral-950 dark:text-neutral-100"
     >
-      <p className="text-sm uppercase tracking-[0.18em] text-neutral-500 dark:text-neutral-400">
-        {label}
-      </p>
+      <BookLoadingGlyph />
+      <span className="sr-only">{label}</span>
     </main>
+  );
+}
+
+function BookLoadingGlyph() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-11 w-11 text-neutral-950 dark:text-neutral-100"
+      fill="none"
+      viewBox="0 0 64 64"
+    >
+      <path
+        className="loading-book-spine"
+        d="M32 15v36"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="2"
+      />
+      <path
+        d="M13 17c8 0 14 2.5 19 7v27c-5-4.5-11-7-19-7V17Z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+      <path
+        d="M51 17c-8 0-14 2.5-19 7v27c5-4.5 11-7 19-7V17Z"
+        stroke="currentColor"
+        strokeLinejoin="round"
+        strokeWidth="2"
+      />
+      <path
+        className="loading-book-page"
+        d="M39 22c3.5-1.5 6.5-2.2 9-2.2v19.7c-3.2.1-6.2 1-9 2.7"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="2"
+      />
+      <path
+        className="loading-book-shadow"
+        d="M18 51c5.2.5 9.8 2.1 14 5 4.2-2.9 8.8-4.5 14-5"
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeWidth="2"
+      />
+    </svg>
   );
 }
 

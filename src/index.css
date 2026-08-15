@@ -148,6 +148,20 @@
     will-change: transform;
   }
 
+  .loading-book-page {
+    animation: loading-book-page 1.25s ease-in-out infinite;
+    transform-box: fill-box;
+    transform-origin: left center;
+  }
+
+  .loading-book-shadow {
+    animation: loading-book-shadow 1.25s ease-in-out infinite;
+  }
+
+  .loading-book-spine {
+    opacity: 0.72;
+  }
+
   @keyframes screen-enter-left {
     from {
       transform: translate3d(-100%, 0, 0);
@@ -217,6 +231,28 @@
     }
     to {
       transform: translate3d(0, 100%, 0);
+    }
+  }
+
+  @keyframes loading-book-page {
+    0%,
+    100% {
+      opacity: 0.35;
+      transform: scaleX(0.88);
+    }
+    50% {
+      opacity: 1;
+      transform: scaleX(1);
+    }
+  }
+
+  @keyframes loading-book-shadow {
+    0%,
+    100% {
+      opacity: 0.24;
+    }
+    50% {
+      opacity: 0.6;
     }
   }
 }
