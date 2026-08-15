@@ -5,3 +5,4 @@ dist
 
 *.tsbuildinfo
 public/books/
+public/book-assets/

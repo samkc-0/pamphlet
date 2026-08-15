@@ -1,6 +1,7 @@
-import { readdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+const assetDirectory = path.resolve("public/book-assets");
 const booksDirectory = path.resolve("public/books");
 const outputPath = path.resolve("src/books.ts");
 
@@ -10,16 +11,28 @@ const files = (await readdir(booksDirectory))
     sensitivity: "base"
   }));
 
-const books = files.map((file) => {
+await rm(assetDirectory, { force: true, recursive: true });
+await mkdir(assetDirectory, { recursive: true });
+
+const usedSlugs = new Set();
+
+const books = await Promise.all(files.map(async (file) => {
   const { author, title } = parseBookName(file);
+  const id = uniqueSlug(slugify(file), usedSlugs);
+  const alias = `${id}.epub`;
+
+  await symlink(
+    path.relative(assetDirectory, path.join(booksDirectory, file)),
+    path.join(assetDirectory, alias)
+  );
 
   return {
     author,
-    id: slugify(file),
+    id,
     title,
-    url: `/books/${encodePathSegment(file)}`
+    url: `/book-assets/${alias}`
   };
-});
+}));
 
 const source = `export type BookSource = {
   author: string;
@@ -94,12 +107,6 @@ function slugify(input) {
     .slice(0, 96);
 }
 
-function encodePathSegment(input) {
-  return encodeURIComponent(input).replace(/[!'()*]/g, (character) =>
-    `%${character.charCodeAt(0).toString(16).toUpperCase()}`
-  );
-}
-
 function looksLikePersonName(value) {
   const normalized = value.replace(/\([^)]*\)/g, "").trim();
   const words = normalized.split(/\s+/).filter(Boolean);
@@ -110,4 +117,18 @@ function looksLikePersonName(value) {
       words.length <= 4 &&
       words.every((word) => /^\p{Lu}/u.test(word)))
   );
+}
+
+function uniqueSlug(slug, usedSlugs) {
+  const fallbackSlug = slug || "book";
+  let candidate = fallbackSlug;
+  let index = 2;
+
+  while (usedSlugs.has(candidate)) {
+    candidate = `${fallbackSlug}-${index}`;
+    index += 1;
+  }
+
+  usedSlugs.add(candidate);
+  return candidate;
 }
