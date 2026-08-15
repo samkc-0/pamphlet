@@ -2,6 +2,7 @@ const APP_STATE_DATABASE_NAME = "pamphlet-state";
 const APP_STATE_DATABASE_VERSION = 1;
 const APP_STATE_KEY = "app-state";
 const APP_STATE_STORE_NAME = "records";
+const DATABASE_OPEN_TIMEOUT_MS = 4000;
 
 type StoredAppStateRecord = {
   id: string;
@@ -45,11 +46,25 @@ export async function writeStoredAppState(state: unknown) {
 
 function openAppStateDatabase() {
   return new Promise<IDBDatabase>((resolve, reject) => {
+    let settled = false;
+    const timeout = window.setTimeout(() => {
+      if (settled) return;
+
+      settled = true;
+      reject(new Error("Timed out opening the local app state database."));
+    }, DATABASE_OPEN_TIMEOUT_MS);
     const request = indexedDB.open(
       APP_STATE_DATABASE_NAME,
       APP_STATE_DATABASE_VERSION
     );
 
+    request.onblocked = () => {
+      if (settled) return;
+
+      settled = true;
+      window.clearTimeout(timeout);
+      reject(new Error("App state database is blocked by another open tab."));
+    };
     request.onupgradeneeded = () => {
       const database = request.result;
 
@@ -60,7 +75,22 @@ function openAppStateDatabase() {
       }
     };
 
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = () => {
+      if (settled) {
+        request.result.close();
+        return;
+      }
+
+      settled = true;
+      window.clearTimeout(timeout);
+      resolve(request.result);
+    };
+    request.onerror = () => {
+      if (settled) return;
+
+      settled = true;
+      window.clearTimeout(timeout);
+      reject(request.error);
+    };
   });
 }
