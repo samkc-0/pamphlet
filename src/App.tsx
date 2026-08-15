@@ -87,6 +87,9 @@ function App() {
   const [activePageByRowId, setActivePageByRowId] = useState<
     Record<string, string>
   >({});
+  const [savedPageByBookId, setSavedPageByBookId] = useState<
+    Record<string, string>
+  >({});
   const [viewportKey, setViewportKey] = useState(() => getViewportKey());
 
   useEffect(() => {
@@ -176,9 +179,17 @@ function App() {
         openBookIds,
         activePageByRowId,
         paginatedBooks,
+        savedPageByBookId,
         toggleBook
       }),
-    [activePageByRowId, loadedBooks, openBookIds, paginatedBooks, toggleBook]
+    [
+      activePageByRowId,
+      loadedBooks,
+      openBookIds,
+      paginatedBooks,
+      savedPageByBookId,
+      toggleBook
+    ]
   );
 
   return (
@@ -189,6 +200,19 @@ function App() {
             ? current
             : activePageByRowId
         );
+        setSavedPageByBookId((current) => {
+          const next = { ...current };
+
+          for (const book of BOOKS) {
+            const pageId = activePageByRowId[book.id];
+
+            if (pageId && pageId !== "status") {
+              next[book.id] = pageId;
+            }
+          }
+
+          return shallowEqualRecords(current, next) ? current : next;
+        });
       }}
       rows={rows}
     />
@@ -200,12 +224,14 @@ function createArticleRows({
   loadedBooks,
   openBookIds,
   paginatedBooks,
+  savedPageByBookId,
   toggleBook
 }: {
   activePageByRowId: Record<string, string>;
   loadedBooks: Record<string, LoadedBook>;
   openBookIds: string[];
   paginatedBooks: Record<string, PaginatedBook>;
+  savedPageByBookId: Record<string, string>;
   toggleBook: (bookId: string) => void;
 }): WorkspaceRow[] {
   return [
@@ -222,6 +248,7 @@ function createArticleRows({
               loadedBooks={loadedBooks}
               openBookIds={openBookIds}
               paginatedBooks={paginatedBooks}
+              savedPageByBookId={savedPageByBookId}
               toggleBook={toggleBook}
             />
           )
@@ -231,7 +258,12 @@ function createArticleRows({
       .map((bookId) => BOOKS.find((book) => book.id === bookId))
       .filter((book): book is BookSource => Boolean(book))
       .map((book) =>
-        createBookRow(book, loadedBooks[book.id], paginatedBooks[book.id]?.pages)
+        createBookRow(
+          book,
+          loadedBooks[book.id],
+          paginatedBooks[book.id]?.pages,
+          savedPageByBookId[book.id]
+        )
       )
   ];
 }
@@ -239,7 +271,8 @@ function createArticleRows({
 function createBookRow(
   book: BookSource,
   loadedBook?: LoadedBook,
-  pages?: ReaderPage[]
+  pages?: ReaderPage[],
+  savedPageId?: string
 ): WorkspaceRow {
   if (pages?.length) {
     const title = loadedBook?.data?.title ?? book.title;
@@ -247,6 +280,7 @@ function createBookRow(
 
     return {
       id: book.id,
+      initialPageId: savedPageId,
       pages: pages.map((page, index) => ({
         id: page.id,
         render: () => (
@@ -289,6 +323,7 @@ function LibraryScreen({
   pageNumber,
   pageTotal,
   paginatedBooks,
+  savedPageByBookId,
   toggleBook
 }: {
   activePageByRowId: Record<string, string>;
@@ -298,6 +333,7 @@ function LibraryScreen({
   pageNumber: number;
   pageTotal: number;
   paginatedBooks: Record<string, PaginatedBook>;
+  savedPageByBookId: Record<string, string>;
   toggleBook: (bookId: string) => void;
 }) {
   return (
@@ -319,13 +355,14 @@ function LibraryScreen({
             const isOpen = openBookIds.includes(book.id);
             const loadedBook = loadedBooks[book.id];
             const pages = paginatedBooks[book.id]?.pages ?? [];
-            const activePageId = activePageByRowId[book.id];
+            const activePageId =
+              activePageByRowId[book.id] ?? savedPageByBookId[book.id];
             const activePageIndex = Math.max(
               0,
               pages.findIndex((page) => page.id === activePageId)
             );
             const progress = pages.length
-              ? ((activePageIndex + 1) / pages.length) * 100
+              ? ((activePageId ? activePageIndex + 1 : 0) / pages.length) * 100
               : 0;
             const rowNumber = openBookIds.indexOf(book.id) + 1;
 
