@@ -73,6 +73,8 @@ type PaginatedBook = {
   viewportKey: string;
 };
 
+const LIBRARY_BOOKS_PER_PAGE = 6;
+
 function App() {
   const [openBookIds, setOpenBookIds] = useState(() =>
     BOOKS.map((book) => book.id)
@@ -208,12 +210,13 @@ function createArticleRows({
   return [
     {
       id: "library",
-      pages: [
-        {
-          id: "books",
+      pages: chunkBooks(BOOKS, LIBRARY_BOOKS_PER_PAGE).map((books, index, pages) => ({
+          id: `books-${index + 1}`,
           render: () => (
             <LibraryScreen
-              books={BOOKS}
+              books={books}
+              pageNumber={index + 1}
+              pageTotal={pages.length}
               activePageByRowId={activePageByRowId}
               loadedBooks={loadedBooks}
               openBookIds={openBookIds}
@@ -221,8 +224,7 @@ function createArticleRows({
               toggleBook={toggleBook}
             />
           )
-        }
-      ]
+        }))
     },
     ...openBookIds
       .map((bookId) => BOOKS.find((book) => book.id === bookId))
@@ -283,6 +285,8 @@ function LibraryScreen({
   books,
   loadedBooks,
   openBookIds,
+  pageNumber,
+  pageTotal,
   paginatedBooks,
   toggleBook
 }: {
@@ -290,6 +294,8 @@ function LibraryScreen({
   books: BookSource[];
   loadedBooks: Record<string, LoadedBook>;
   openBookIds: string[];
+  pageNumber: number;
+  pageTotal: number;
   paginatedBooks: Record<string, PaginatedBook>;
   toggleBook: (bookId: string) => void;
 }) {
@@ -300,6 +306,11 @@ function LibraryScreen({
           <h1 className="mt-4 text-4xl font-semibold leading-tight text-neutral-950 sm:text-6xl">
             Contents
           </h1>
+          {pageTotal > 1 ? (
+            <div className="mt-2 text-sm text-neutral-500">
+              {pageNumber} / {pageTotal}
+            </div>
+          ) : null}
         </header>
 
         <ol>
@@ -445,6 +456,16 @@ function waitForIdle() {
 
     globalThis.setTimeout(resolve, 0);
   });
+}
+
+function chunkBooks(books: BookSource[], size: number) {
+  const chunks: BookSource[][] = [];
+
+  for (let index = 0; index < books.length; index += size) {
+    chunks.push(books.slice(index, index + size));
+  }
+
+  return chunks;
 }
 
 function shallowEqualRecords(
