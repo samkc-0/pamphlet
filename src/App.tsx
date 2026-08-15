@@ -390,18 +390,18 @@ function ReaderScreen({
 }) {
   return (
     <article className="grid h-full grid-rows-[auto_1fr] overflow-hidden bg-white px-5 py-5 sm:px-10 sm:py-7">
-      <header className="mx-auto flex w-full max-w-3xl items-baseline justify-between gap-4 border-b border-neutral-200 pb-3 text-sm text-neutral-500">
-        <div className="min-w-0 truncate">
-          <span className="text-neutral-900">{title}</span>
+      <header className="mx-auto flex w-full max-w-3xl min-w-0 items-baseline justify-between gap-4 border-b border-neutral-200 pb-3 text-sm text-neutral-500">
+        <div className="min-w-0 overflow-hidden">
+          <span className="truncate text-neutral-900">{title}</span>
           <span className="mx-2 text-neutral-300">/</span>
-          <span>{author}</span>
+          <span className="truncate">{author}</span>
         </div>
         <div className="shrink-0">
           {pageNumber} / {pageTotal}
         </div>
       </header>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-col justify-start overflow-hidden py-5 sm:py-8">
+      <div className="mx-auto flex min-h-0 w-full max-w-3xl min-w-0 flex-col justify-start overflow-hidden py-5 sm:py-8">
         <div className="reader-page-content">
           {chapterTitle ? (
             <div className="reader-chapter-heading">{chapterTitle}</div>

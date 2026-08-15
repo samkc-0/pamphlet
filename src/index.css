@@ -51,6 +51,11 @@
     font-size: clamp(1.125rem, 2.4vw, 1.5rem);
     font-weight: 600;
     line-height: 1.15;
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    word-break: break-word;
     color: rgb(10 10 10);
   }
 
@@ -74,6 +79,12 @@
     overflow-wrap: anywhere;
     white-space: normal;
     word-break: break-word;
+  }
+
+  .reader-page-body,
+  .reader-page-body * {
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
 
   .reader-measurer {
