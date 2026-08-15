@@ -391,20 +391,20 @@ function SettingsScreen({
   return (
     <div className="flex min-h-full items-center px-5 py-8 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-12">
       <div className="mx-auto w-full max-w-3xl text-center">
-        <header className="mb-8">
-          <h1 className="mt-4 text-4xl font-semibold leading-tight sm:text-6xl">
+        <fieldset className="mx-auto max-w-md border border-neutral-300 px-6 pb-7 pt-5 dark:border-neutral-700">
+          <legend className="mx-auto px-3 text-sm uppercase tracking-[0.18em] text-neutral-500 dark:text-neutral-400">
             Settings
-          </h1>
-        </header>
+          </legend>
 
-        <button
-          aria-pressed={isDarkMode}
-          className="mx-auto block text-xl leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400 min-[390px]:text-2xl"
-          onClick={toggleDarkMode}
-          type="button"
-        >
-          Dark mode {isDarkMode ? "on" : "off"}
-        </button>
+          <button
+            aria-pressed={isDarkMode}
+            className="mx-auto block text-lg leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400"
+            onClick={toggleDarkMode}
+            type="button"
+          >
+            Dark mode {isDarkMode ? "on" : "off"}
+          </button>
+        </fieldset>
       </div>
     </div>
   );
