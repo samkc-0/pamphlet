@@ -3,7 +3,6 @@ import type { FormEvent, MouseEvent, PointerEvent } from "react";
 import { Settings } from "lucide-react";
 
 import { BOOKS, type BookSource } from "@/books";
-import { BookLoadingOverlay } from "@/components/book-loading-overlay";
 import {
   SwipeWorkspace,
   type WorkspaceRow
@@ -431,9 +430,7 @@ function App() {
         pageJump={pageJump}
         rows={rows}
       />
-      {isBookLoading ? (
-        <BookLoadingOverlay label="Loading" />
-      ) : null}
+      {isBookLoading ? <LoadingScreen label="Loading" /> : null}
       {editingBook && editingMetadata ? (
         <BookMetadataDialog
           book={editingBook}
@@ -638,8 +635,20 @@ function SettingsScreen({
 
 function SyncingScreen() {
   return (
-    <main className="h-dvh w-screen bg-white text-neutral-950 dark:bg-neutral-950 dark:text-neutral-100">
-      <BookLoadingOverlay animated label="Syncing" />
+    <LoadingScreen label="Syncing" />
+  );
+}
+
+function LoadingScreen({ label }: { label: string }) {
+  return (
+    <main
+      aria-busy="true"
+      aria-label={label}
+      className="fixed inset-0 z-40 flex h-dvh w-screen items-center justify-center bg-white px-6 text-center text-neutral-950 dark:bg-neutral-950 dark:text-neutral-100"
+    >
+      <p className="text-sm uppercase tracking-[0.18em] text-neutral-500 dark:text-neutral-400">
+        {label}
+      </p>
     </main>
   );
 }

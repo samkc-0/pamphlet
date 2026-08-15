@@ -21,14 +21,12 @@
     "react-dom": "^19.0.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
-    "three": "^0.185.1",
     "vite": "6.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@types/three": "^0.185.4",
     "autoprefixer": "^10.4.20",
     "esbuild": "0.24.2",
     "postcss": "^8.4.49",
