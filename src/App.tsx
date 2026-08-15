@@ -12,6 +12,7 @@ import {
   writeStoredAppState
 } from "@/lib/app-state-store";
 import {
+  deleteStoredBook,
   loadBookCatalog,
   readBookData,
   saveUploadedBook
@@ -117,6 +118,7 @@ const MAX_OPEN_BOOKS = 5;
 const LANGUAGE_CHOICES = [
   { code: "en", flag: "🇬🇧", label: "English" },
   { code: "es", flag: "🇪🇸", label: "Spanish" },
+  { code: "fr", flag: "🇫🇷", label: "French" },
   { code: "it", flag: "🇮🇹", label: "Italian" }
 ];
 
@@ -453,6 +455,19 @@ function App() {
     []
   );
 
+  const deleteBook = useCallback(async (book: BookSource) => {
+    await deleteStoredBook(book);
+    setBooks(await refreshBookCatalog());
+    setEditingBookId(null);
+    setOpenBookIds((current) => current.filter((bookId) => bookId !== book.id));
+    setLoadedBooks((current) => omitRecordKey(current, book.id));
+    setPaginatedBooks((current) => omitRecordKey(current, book.id));
+    setBookMetadataEdits((current) => omitRecordKey(current, book.id));
+    setSavedPageByBookId((current) => omitRecordKey(current, book.id));
+    setActivePageByRowId((current) => omitRecordKey(current, book.id));
+    setActiveRowId((current) => (current === book.id ? "library" : current));
+  }, []);
+
   const editingBook = editingBookId
     ? books.find((book) => book.id === editingBookId)
     : undefined;
@@ -577,6 +592,7 @@ function App() {
           book={editingBook}
           metadata={editingMetadata}
           onClose={() => setEditingBookId(null)}
+          onDelete={deleteBook}
           onSave={saveBookMetadata}
         />
       ) : null}
@@ -887,15 +903,18 @@ function BookMetadataDialog({
   book,
   metadata,
   onClose,
+  onDelete,
   onSave
 }: {
   animationsEnabled: boolean;
   book: BookSource;
   metadata: BookMetadataEdit;
   onClose: () => void;
+  onDelete: (book: BookSource) => Promise<void>;
   onSave: (bookId: string, metadata: BookMetadataEdit) => void;
 }) {
   const [author, setAuthor] = useState(metadata.author);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [languageCode, setLanguageCode] = useState(
     getSupportedLanguageCode(metadata.languageCode)
   );
@@ -919,6 +938,13 @@ function BookMetadataDialog({
       author: author.trim(),
       languageCode: getSupportedLanguageCode(languageCode),
       title: title.trim()
+    });
+  };
+
+  const handleDelete = () => {
+    setIsDeleting(true);
+    onDelete(book).catch(() => {
+      setIsDeleting(false);
     });
   };
 
@@ -1009,6 +1035,14 @@ function BookMetadataDialog({
 
         <div className="mt-7 flex justify-center gap-6">
           <button
+            className="text-base text-neutral-500 outline-none focus-visible:text-neutral-950 disabled:opacity-50 dark:text-neutral-400 dark:focus-visible:text-neutral-100"
+            disabled={isDeleting}
+            onClick={handleDelete}
+            type="button"
+          >
+            {isDeleting ? "Deleting" : "Delete"}
+          </button>
+          <button
             className="text-base text-neutral-500 outline-none focus-visible:text-neutral-950 dark:text-neutral-400 dark:focus-visible:text-neutral-100"
             onClick={onClose}
             type="button"
@@ -1017,6 +1051,7 @@ function BookMetadataDialog({
           </button>
           <button
             className="text-base text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400"
+            disabled={isDeleting}
             type="submit"
           >
             Save
@@ -1547,6 +1582,16 @@ function arraysEqual(left: string[], right: string[]) {
     left.length === right.length &&
     left.every((value, index) => value === right[index])
   );
+}
+
+function omitRecordKey<Value>(
+  record: Record<string, Value>,
+  keyToOmit: string
+) {
+  if (!(keyToOmit in record)) return record;
+
+  const { [keyToOmit]: _omitted, ...next } = record;
+  return next;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

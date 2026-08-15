@@ -98,6 +98,25 @@ export async function saveUploadedBook(uploadedBook: UploadedBook) {
   }).finally(() => database.close());
 }
 
+export async function deleteStoredBook(book: BookSource) {
+  const database = await openLibraryDatabase();
+
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(
+      [BOOKS_STORE_NAME, BOOK_DATA_STORE_NAME],
+      "readwrite"
+    );
+    const bookStore = transaction.objectStore(BOOKS_STORE_NAME);
+    const dataStore = transaction.objectStore(BOOK_DATA_STORE_NAME);
+
+    bookStore.delete(book.id);
+    dataStore.delete(book.storageKey);
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+  }).finally(() => database.close());
+}
+
 function openLibraryDatabase() {
   return new Promise<IDBDatabase>((resolve, reject) => {
     let settled = false;
