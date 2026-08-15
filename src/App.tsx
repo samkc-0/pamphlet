@@ -8,6 +8,10 @@ import {
   type WorkspaceRow
 } from "@/components/swipe-workspace";
 import { loadEpub, type EpubBook } from "@/lib/epub";
+import {
+  readCachedPagination,
+  writeCachedPagination
+} from "@/lib/pagination-cache";
 import { paginateBookByLayout, type ReaderPage } from "@/lib/pagination";
 
 const ROW_MARKERS = [
@@ -252,8 +256,22 @@ function App() {
         if (!openBookIds.includes(book.id) || !loadedBook?.data) continue;
         if (paginatedBooks[book.id]?.viewportKey === viewportKey) continue;
 
+        const cachedPagination = await readCachedPagination(book, viewportKey);
+
+        if (cachedPagination && !cancelled) {
+          setPaginatedBooks((current) => ({
+            ...current,
+            [book.id]: {
+              pages: cachedPagination.pages,
+              viewportKey
+            }
+          }));
+          continue;
+        }
+
         await waitForIdle();
         const pages = await paginateBookByLayout(loadedBook.data);
+        await writeCachedPagination(book, viewportKey, pages);
 
         if (!cancelled) {
           setPaginatedBooks((current) => ({
