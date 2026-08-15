@@ -426,7 +426,7 @@ function LibraryScreen({
                   onClick={() => toggleBook(book.id)}
                   type="button"
                 >
-                  <span className="block font-['Cormorant_Garamond'] text-2xl font-semibold leading-tight text-neutral-950 min-[390px]:text-3xl">
+                  <span className="block text-xl leading-tight text-neutral-950 min-[390px]:text-2xl">
                     {loadedBook?.data?.title ?? book.title}
                     <span
                       aria-hidden={!isOpen}
