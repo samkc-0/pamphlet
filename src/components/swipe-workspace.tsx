@@ -202,7 +202,6 @@ export function SwipeWorkspace({
     }
 
     pointerStart.current = { x: event.clientX, y: event.clientY };
-    event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -230,8 +229,11 @@ export function SwipeWorkspace({
 
   return (
     <main
-      className="h-dvh w-screen overflow-hidden bg-background text-foreground"
+      className="h-dvh w-screen touch-none overflow-hidden bg-background text-foreground"
       onPointerDown={handlePointerDown}
+      onPointerCancel={() => {
+        pointerStart.current = null;
+      }}
       onPointerUp={handlePointerUp}
     >
       <div className="relative h-full w-full overflow-hidden">
@@ -279,9 +281,16 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function isInteractiveTarget(target: EventTarget) {
-  return target instanceof Element
+  const element =
+    target instanceof Element
+      ? target
+      : target instanceof Node
+        ? target.parentElement
+        : null;
+
+  return element
     ? Boolean(
-        target.closest(
+        element.closest(
           "a, button, input, select, textarea, summary, [contenteditable='true']"
         )
       )
