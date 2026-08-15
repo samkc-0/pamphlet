@@ -338,10 +338,10 @@ function LibraryScreen({
                   </span>
                   <span
                     aria-hidden="true"
-                    className="mx-auto mt-3 block h-1.5 w-full max-w-md bg-neutral-200"
+                    className="mx-auto mt-3 block h-0.5 w-full max-w-md overflow-hidden rounded-full bg-neutral-200"
                   >
                     <span
-                      className="block h-full bg-neutral-950"
+                      className="block h-full rounded-full bg-neutral-950"
                       style={{ width: `${isOpen ? progress : 0}%` }}
                     />
                   </span>
