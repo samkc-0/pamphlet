@@ -395,7 +395,7 @@ function App() {
   if (!isStateLoaded) {
     return (
       <div className={isDarkMode ? "dark" : ""}>
-        <SyncingScreen />
+        <SyncingScreen animationsEnabled={animationsEnabled} />
       </div>
     );
   }
@@ -430,7 +430,12 @@ function App() {
         pageJump={pageJump}
         rows={rows}
       />
-      {isBookLoading ? <LoadingScreen label="Loading" /> : null}
+      {isBookLoading ? (
+        <LoadingScreen
+          animationsEnabled={animationsEnabled}
+          label="Loading"
+        />
+      ) : null}
       {editingBook && editingMetadata ? (
         <BookMetadataDialog
           book={editingBook}
@@ -633,13 +638,23 @@ function SettingsScreen({
   );
 }
 
-function SyncingScreen() {
+function SyncingScreen({
+  animationsEnabled
+}: {
+  animationsEnabled: boolean;
+}) {
   return (
-    <LoadingScreen label="Syncing" />
+    <LoadingScreen animationsEnabled={animationsEnabled} label="Syncing" />
   );
 }
 
-function LoadingScreen({ label }: { label: string }) {
+function LoadingScreen({
+  animationsEnabled,
+  label
+}: {
+  animationsEnabled: boolean;
+  label: string;
+}) {
   return (
     <main
       aria-busy="true"
@@ -648,7 +663,9 @@ function LoadingScreen({ label }: { label: string }) {
     >
       <span
         aria-hidden="true"
-        className="text-4xl grayscale"
+        className={`text-4xl grayscale ${
+          animationsEnabled ? "loading-book-spin" : ""
+        }`}
       >
         📖
       </span>
