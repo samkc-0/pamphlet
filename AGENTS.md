@@ -1,0 +1,3 @@
+Can you please scaffold a react native expo app that is JUST:
+
+vertical + horizontale swipe-scrolling to view each 'screen' of a multi-screen app. Think of the whole app as a big green and you can swip between its screens. Each screen shows its coordinate. (e.g. top row is A1, A2, ... A8 and next row is B1, ..., B8. so when i swipe to B8 I see an empty white screen with 'B8' in the center'). My location on each row is tracked. so say my row-positions are saved as A1, B3 and I am on A1, when i swipe down I will go to B3 instead of B1. When I swipe back up I return to A1, *NOT* A3. Howver, swiping left and right updates the horizontal row index. so if I swipe from A1, to A2, then down to (saved) B3), then back up, I am back at A2.
