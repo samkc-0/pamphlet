@@ -526,10 +526,11 @@ function BookMetadataDialog({
         onSubmit={handleSubmit}
       >
         <h2
-          className="text-center text-sm uppercase tracking-[0.18em] text-neutral-500 dark:text-neutral-400"
+          className="flex justify-center text-neutral-500 dark:text-neutral-400"
           id="book-metadata-title"
         >
-          Book
+          <Settings aria-hidden="true" className="h-4 w-4" strokeWidth={1.75} />
+          <span className="sr-only">Book settings</span>
         </h2>
 
         <div className="mt-6 space-y-5 text-left">
