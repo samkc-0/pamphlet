@@ -372,6 +372,9 @@ function LibraryScreen({
   savedPageByBookId: Record<string, string>;
   toggleBook: (bookId: string) => void;
 }) {
+  const contentsProgress =
+    pageTotal > 1 ? ((pageNumber - 1) / (pageTotal - 1)) * 100 : 0;
+
   return (
     <div className="flex min-h-full items-center px-5 py-8 sm:px-10 sm:py-12">
       <div className="mx-auto w-full max-w-3xl">
@@ -379,11 +382,20 @@ function LibraryScreen({
           <h1 className="mt-4 text-4xl font-semibold leading-tight text-neutral-950 sm:text-6xl">
             Contents
           </h1>
-          {pageTotal > 1 ? (
-            <div className="mt-2 text-sm text-neutral-500">
-              {pageNumber} of {pageTotal}
-            </div>
-          ) : null}
+          <span
+            aria-label={`Contents page ${pageNumber} of ${pageTotal}`}
+            className="mx-auto mt-4 block h-0.5 w-full max-w-md overflow-hidden rounded-full bg-neutral-200"
+            role="meter"
+            aria-valuemax={pageTotal}
+            aria-valuemin={1}
+            aria-valuenow={pageNumber}
+          >
+            <span
+              aria-hidden="true"
+              className="block h-full rounded-full bg-neutral-950"
+              style={{ width: `${contentsProgress}%` }}
+            />
+          </span>
         </header>
 
         <ol>
