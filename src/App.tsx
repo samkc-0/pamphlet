@@ -188,7 +188,6 @@ function createArticleRows({
               books={BOOKS}
               loadedBooks={loadedBooks}
               openBookIds={openBookIds}
-              paginatedBooks={paginatedBooks}
               toggleBook={toggleBook}
             />
           )
@@ -250,13 +249,11 @@ function LibraryScreen({
   books,
   loadedBooks,
   openBookIds,
-  paginatedBooks,
   toggleBook
 }: {
   books: BookSource[];
   loadedBooks: Record<string, LoadedBook>;
   openBookIds: string[];
-  paginatedBooks: Record<string, ReaderPage[]>;
   toggleBook: (bookId: string) => void;
 }) {
   return (
@@ -275,7 +272,6 @@ function LibraryScreen({
           {books.map((book) => {
             const isOpen = openBookIds.includes(book.id);
             const loadedBook = loadedBooks[book.id];
-            const pageCount = paginatedBooks[book.id]?.length;
             const rowNumber =
               books
                 .filter((candidate) => openBookIds.includes(candidate.id))
@@ -295,20 +291,17 @@ function LibraryScreen({
                 role="button"
                 tabIndex={0}
               >
-                <div className="grid grid-cols-[3rem_1fr_auto] items-baseline gap-3 px-2">
-                  <div className="text-2xl text-neutral-950">
-                    {isOpen ? ROW_MARKERS[rowNumber] : ""}
-                  </div>
-                  <div className="min-w-0">
-                    <div className="text-2xl leading-tight text-neutral-950">
+                <div className="px-2">
+                  <div className="text-2xl leading-tight text-neutral-950">
                     {loadedBook?.data?.title ?? book.title}
-                    </div>
-                    <div className="mt-1 text-base text-neutral-600">
-                      {loadedBook?.data?.author ?? book.author}
-                    </div>
+                    {isOpen ? (
+                      <span className="ml-2 text-neutral-500">
+                        {ROW_MARKERS[rowNumber]}
+                      </span>
+                    ) : null}
                   </div>
-                  <div className="text-right text-sm text-neutral-500">
-                    {isOpen ? `${pageCount ?? "..."} pp.` : ""}
+                  <div className="mt-1 text-base text-neutral-600">
+                    {loadedBook?.data?.author ?? book.author}
                   </div>
                 </div>
               </li>
