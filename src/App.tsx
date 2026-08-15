@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Settings } from "lucide-react";
 
 import { BOOKS, type BookSource } from "@/books";
 import {
@@ -392,8 +393,9 @@ function SettingsScreen({
     <div className="flex min-h-full items-center px-5 py-8 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-12">
       <div className="mx-auto w-full max-w-3xl text-center">
         <fieldset className="mx-auto max-w-md border border-neutral-300 px-6 pb-7 pt-5 dark:border-neutral-700">
-          <legend className="mx-auto px-3 text-sm uppercase tracking-[0.18em] text-neutral-500 dark:text-neutral-400">
-            Settings
+          <legend className="mx-auto px-3 text-neutral-500 dark:text-neutral-400">
+            <Settings aria-hidden="true" className="h-4 w-4" strokeWidth={1.75} />
+            <span className="sr-only">Settings</span>
           </legend>
 
           <button
