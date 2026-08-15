@@ -49,10 +49,12 @@ function paginateChapter(
   maxHeight: number
 ) {
   const pages: ReaderPage[] = [];
+  const paragraphs = [...chapter.paragraphs];
   let pageParagraphs: string[] = [];
   let pageIndex = 1;
 
-  for (const paragraph of chapter.paragraphs) {
+  for (let paragraphIndex = 0; paragraphIndex < paragraphs.length;) {
+    const paragraph = paragraphs[paragraphIndex];
     const nextParagraphs = [...pageParagraphs, paragraph];
     const nextHeight = measurePage(
       measurer,
@@ -60,7 +62,26 @@ function paginateChapter(
       nextParagraphs
     );
 
-    if (pageParagraphs.length > 0 && nextHeight > maxHeight) {
+    if (nextHeight <= maxHeight) {
+      pageParagraphs = nextParagraphs;
+      paragraphIndex += 1;
+      continue;
+    }
+
+    const split = splitParagraphToFit(
+      measurer,
+      getPageChapterTitle(chapter, pageIndex),
+      pageParagraphs,
+      paragraph,
+      maxHeight
+    );
+
+    if (split.fittingText) {
+      pageParagraphs = [...pageParagraphs, split.fittingText];
+      paragraphs[paragraphIndex] = split.remainingText;
+    }
+
+    if (pageParagraphs.length > 0) {
       pages.push({
         chapterTitle: getPageChapterTitle(chapter, pageIndex),
         id: `${chapter.id}-${pageIndex}`,
@@ -68,32 +89,30 @@ function paginateChapter(
       });
 
       pageIndex += 1;
-      pageParagraphs = [paragraph];
-    } else {
-      pageParagraphs = nextParagraphs;
+      pageParagraphs = [];
+      continue;
     }
 
-    if (
-      measurePage(
-        measurer,
-        getPageChapterTitle(chapter, pageIndex),
-        pageParagraphs
-      ) > maxHeight
-    ) {
-      const split = splitOversizedParagraph(
-        measurer,
-        chapter,
-        pageIndex,
-        pageParagraphs[0],
-        maxHeight
-      );
-      pages.push(...split.pages.map((paragraphs, index) => ({
-        chapterTitle: getPageChapterTitle(chapter, pageIndex + index),
-        id: `${chapter.id}-${pageIndex + index}`,
-        paragraphs
-      })));
-      pageIndex += split.pages.length;
-      pageParagraphs = split.remainder ? [split.remainder] : [];
+    const forcedSplit = splitParagraphToFit(
+      measurer,
+      getPageChapterTitle(chapter, pageIndex),
+      [],
+      paragraph,
+      maxHeight
+    );
+
+    pages.push({
+      chapterTitle: getPageChapterTitle(chapter, pageIndex),
+      id: `${chapter.id}-${pageIndex}`,
+      paragraphs: [forcedSplit.fittingText || paragraph]
+    });
+
+    pageIndex += 1;
+
+    if (forcedSplit.remainingText) {
+      paragraphs[paragraphIndex] = forcedSplit.remainingText;
+    } else {
+      paragraphIndex += 1;
     }
   }
 
@@ -108,37 +127,51 @@ function paginateChapter(
   return pages;
 }
 
-function splitOversizedParagraph(
+function splitParagraphToFit(
   measurer: ReturnType<typeof createMeasurer>,
-  chapter: EpubSection,
-  pageIndex: number,
+  chapterTitle: string | undefined,
+  baseParagraphs: string[],
   paragraph: string,
   maxHeight: number
 ) {
-  const words = paragraph.split(" ");
-  const pages: string[][] = [];
-  let current = "";
+  const words = paragraph.split(/\s+/).filter(Boolean);
 
-  for (const word of words) {
-    const candidate = current ? `${current} ${word}` : word;
+  if (words.length === 0) {
+    return { fittingText: "", remainingText: "" };
+  }
 
-    if (
-      current &&
-      measurePage(measurer, getPageChapterTitle(chapter, pageIndex), [
-        candidate
-      ]) > maxHeight
-    ) {
-      pages.push([current]);
-      current = word;
-      pageIndex += 1;
+  let low = 0;
+  let high = words.length;
+  let best = 0;
+
+  while (low <= high) {
+    const mid = Math.floor((low + high) / 2);
+    const candidate = words.slice(0, mid).join(" ");
+    const height = measurePage(
+      measurer,
+      chapterTitle,
+      candidate ? [...baseParagraphs, candidate] : baseParagraphs
+    );
+
+    if (height <= maxHeight) {
+      best = mid;
+      low = mid + 1;
     } else {
-      current = candidate;
+      high = mid - 1;
     }
   }
 
+  if (best === 0 && baseParagraphs.length > 0) {
+    return { fittingText: "", remainingText: paragraph };
+  }
+
+  if (best === 0) {
+    best = 1;
+  }
+
   return {
-    pages,
-    remainder: current
+    fittingText: words.slice(0, best).join(" "),
+    remainingText: words.slice(best).join(" ")
   };
 }
 
