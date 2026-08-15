@@ -38,6 +38,10 @@ export type WorkspaceRow = {
 type SwipeWorkspaceProps = {
   initialRowId?: string;
   keyboard?: boolean;
+  onStateChange?: (state: {
+    activePageByRowId: Record<string, string>;
+    activeRowId: string;
+  }) => void;
   rows: WorkspaceRow[];
   swipe?: boolean;
 };
@@ -45,6 +49,7 @@ type SwipeWorkspaceProps = {
 export function SwipeWorkspace({
   initialRowId,
   keyboard = true,
+  onStateChange,
   rows,
   swipe = true
 }: SwipeWorkspaceProps) {
@@ -71,6 +76,10 @@ export function SwipeWorkspace({
     activeRow?.pages.findIndex((page) => page.id === activePageId) ?? 0
   );
   const activePage = activeRow?.pages[pageIndex];
+
+  useEffect(() => {
+    onStateChange?.({ activePageByRowId, activeRowId });
+  }, [activePageByRowId, activeRowId, onStateChange]);
 
   useEffect(() => {
     setActivePageByRowId((current) => {

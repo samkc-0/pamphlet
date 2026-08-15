@@ -83,6 +83,9 @@ function App() {
   const [paginatedBooks, setPaginatedBooks] = useState<
     Record<string, PaginatedBook>
   >({});
+  const [activePageByRowId, setActivePageByRowId] = useState<
+    Record<string, string>
+  >({});
   const [viewportKey, setViewportKey] = useState(() => getViewportKey());
 
   useEffect(() => {
@@ -168,21 +171,35 @@ function App() {
       createArticleRows({
         loadedBooks,
         openBookIds,
+        activePageByRowId,
         paginatedBooks,
         toggleBook
       }),
-    [loadedBooks, openBookIds, paginatedBooks, toggleBook]
+    [activePageByRowId, loadedBooks, openBookIds, paginatedBooks, toggleBook]
   );
 
-  return <SwipeWorkspace rows={rows} />;
+  return (
+    <SwipeWorkspace
+      onStateChange={({ activePageByRowId }) => {
+        setActivePageByRowId((current) =>
+          shallowEqualRecords(current, activePageByRowId)
+            ? current
+            : activePageByRowId
+        );
+      }}
+      rows={rows}
+    />
+  );
 }
 
 function createArticleRows({
+  activePageByRowId,
   loadedBooks,
   openBookIds,
   paginatedBooks,
   toggleBook
 }: {
+  activePageByRowId: Record<string, string>;
   loadedBooks: Record<string, LoadedBook>;
   openBookIds: string[];
   paginatedBooks: Record<string, PaginatedBook>;
@@ -197,8 +214,10 @@ function createArticleRows({
           render: () => (
             <LibraryScreen
               books={BOOKS}
+              activePageByRowId={activePageByRowId}
               loadedBooks={loadedBooks}
               openBookIds={openBookIds}
+              paginatedBooks={paginatedBooks}
               toggleBook={toggleBook}
             />
           )
@@ -260,14 +279,18 @@ function createBookRow(
 }
 
 function LibraryScreen({
+  activePageByRowId,
   books,
   loadedBooks,
   openBookIds,
+  paginatedBooks,
   toggleBook
 }: {
+  activePageByRowId: Record<string, string>;
   books: BookSource[];
   loadedBooks: Record<string, LoadedBook>;
   openBookIds: string[];
+  paginatedBooks: Record<string, PaginatedBook>;
   toggleBook: (bookId: string) => void;
 }) {
   return (
@@ -283,6 +306,15 @@ function LibraryScreen({
           {books.map((book) => {
             const isOpen = openBookIds.includes(book.id);
             const loadedBook = loadedBooks[book.id];
+            const pages = paginatedBooks[book.id]?.pages ?? [];
+            const activePageId = activePageByRowId[book.id];
+            const activePageIndex = Math.max(
+              0,
+              pages.findIndex((page) => page.id === activePageId)
+            );
+            const progress = pages.length
+              ? ((activePageIndex + 1) / pages.length) * 100
+              : 0;
             const rowNumber = openBookIds.indexOf(book.id) + 1;
 
             return (
@@ -303,6 +335,15 @@ function LibraryScreen({
                     >
                       {isOpen ? ROW_MARKERS[rowNumber] : ROW_MARKERS[0]}
                     </span>
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="mx-auto mt-3 block h-1.5 w-full max-w-md bg-neutral-200"
+                  >
+                    <span
+                      className="block h-full bg-neutral-950"
+                      style={{ width: `${isOpen ? progress : 0}%` }}
+                    />
                   </span>
                   <span className="mt-1 block text-base text-neutral-600">
                     {loadedBook?.data?.author ?? book.author}
@@ -408,6 +449,18 @@ function waitForIdle() {
 
     globalThis.setTimeout(resolve, 0);
   });
+}
+
+function shallowEqualRecords(
+  left: Record<string, string>,
+  right: Record<string, string>
+) {
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+
+  if (leftKeys.length !== rightKeys.length) return false;
+
+  return leftKeys.every((key) => left[key] === right[key]);
 }
 
 export default App;
