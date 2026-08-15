@@ -17,7 +17,7 @@ const books = files.map((file) => {
     author,
     id: slugify(file),
     title,
-    url: `/books/${encodeURIComponent(file)}`
+    url: `/books/${encodePathSegment(file)}`
   };
 });
 
@@ -92,6 +92,12 @@ function slugify(input) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 96);
+}
+
+function encodePathSegment(input) {
+  return encodeURIComponent(input).replace(/[!'()*]/g, (character) =>
+    `%${character.charCodeAt(0).toString(16).toUpperCase()}`
+  );
 }
 
 function looksLikePersonName(value) {

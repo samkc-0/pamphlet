@@ -10,7 +10,7 @@ export const BOOKS: BookSource[] = [
     "author": "Allende, Isabel",
     "id": "allende-isabel-violeta-2022-ballantine-books-libgen-li",
     "title": "Violeta (2022, Ballantine Books) - libgen.li",
-    "url": "/books/Allende%2C%20Isabel%20-%20Violeta%20(2022%2C%20Ballantine%20Books)%20-%20libgen.li.epub"
+    "url": "/books/Allende%2C%20Isabel%20-%20Violeta%20%282022%2C%20Ballantine%20Books%29%20-%20libgen.li.epub"
   },
   {
     "author": "Isabel Allende",
@@ -82,25 +82,25 @@ export const BOOKS: BookSource[] = [
     "author": "Italo Calvino",
     "id": "il-barone-rampante-oscar-opere-di-italo-calvino-vol-1-italo-calvino-2010-mondadori-d9359ac5d5402",
     "title": "Il barone rampante (Oscar opere di Italo Calvino Vol 1)",
-    "url": "/books/Il%20barone%20rampante%20(Oscar%20opere%20di%20Italo%20Calvino%20Vol_%201)%20--%20Italo%20Calvino%20--%202010%20--%20Mondadori%20--%20d9359ac5d54020583258404bfeff2025%20--%20Anna%E2%80%99s%20Archive.epub"
+    "url": "/books/Il%20barone%20rampante%20%28Oscar%20opere%20di%20Italo%20Calvino%20Vol_%201%29%20--%20Italo%20Calvino%20--%202010%20--%20Mondadori%20--%20d9359ac5d54020583258404bfeff2025%20--%20Anna%E2%80%99s%20Archive.epub"
   },
   {
     "author": "Jorge Luis Borges",
     "id": "jorge-luis-borges-literaturas-germanicas-medievales-1966-libgen-li",
     "title": "Literaturas germánicas medievales (1966) - libgen.li",
-    "url": "/books/Jorge%20Luis%20Borges%20-%20Literaturas%20germa%CC%81nicas%20medievales%20(1966)%20-%20libgen.li.epub"
+    "url": "/books/Jorge%20Luis%20Borges%20-%20Literaturas%20germa%CC%81nicas%20medievales%20%281966%29%20-%20libgen.li.epub"
   },
   {
     "author": "Jovica Ilic",
     "id": "jovica-ilic-mastering-vim-quickly-from-wtf-to-omg-in-no-time-2018-independently-published-libgen",
     "title": "Mastering Vim Quickly From WTF to OMG in no time (2018, Independently published) - libgen.li",
-    "url": "/books/Jovica%20Ilic%20-%20Mastering%20Vim%20Quickly_%20From%20WTF%20to%20OMG%20in%20no%20time%20(2018%2C%20Independently%20published)%20-%20libgen.li.epub"
+    "url": "/books/Jovica%20Ilic%20-%20Mastering%20Vim%20Quickly_%20From%20WTF%20to%20OMG%20in%20no%20time%20%282018%2C%20Independently%20published%29%20-%20libgen.li.epub"
   },
   {
     "author": "Isabel Allende",
     "id": "la-casa-de-los-espiritus-isabel-allende-allende-isabel-2011-piolin-39-2d29f95203c434220786eb0873",
     "title": "La casa de los espíritus",
-    "url": "/books/La%20casa%20de%20los%20esp%C3%ADritus%20--%20Isabel%20Allende%20%5BAllende%2C%20Isabel%5D%20--%202011%20--%20Piol%C3%ADn_39%20--%202d29f95203c434220786eb08733d9719%20--%20Anna%E2%80%99s%20Archive%20(1).epub"
+    "url": "/books/La%20casa%20de%20los%20esp%C3%ADritus%20--%20Isabel%20Allende%20%5BAllende%2C%20Isabel%5D%20--%202011%20--%20Piol%C3%ADn_39%20--%202d29f95203c434220786eb08733d9719%20--%20Anna%E2%80%99s%20Archive%20%281%29.epub"
   },
   {
     "author": "Carlos Fuentes",
@@ -148,7 +148,7 @@ export const BOOKS: BookSource[] = [
     "author": "白, 先勇, , Auteur",
     "id": "1937-auteur-er-ya-cong-shu-471-chu-ban-taibei-shi-china-republic-9789576394485-4728eee29b4e25191",
     "title": "紐約客",
-    "url": "/books/%E7%B4%90%E7%B4%84%E5%AE%A2%20--%20%E7%99%BD%2C%20%E5%85%88%E5%8B%87%2C%20(1937-%20___)_%2C%20Auteur%20--%20Er%20ya%20cong%20shu%20--%20471%2C%20Chu%20ban%2C%20Taibei%20Shi%2C%20China%20(Republic%20--%20%E7%88%BE%E9%9B%85%E5%87%BA%E7%89%88%E7%A4%BE%20--%209789576394485%20--%204728eee29b4e25191664745612ebf3b4%20--%20Anna%E2%80%99s%20Archive.epub"
+    "url": "/books/%E7%B4%90%E7%B4%84%E5%AE%A2%20--%20%E7%99%BD%2C%20%E5%85%88%E5%8B%87%2C%20%281937-%20___%29_%2C%20Auteur%20--%20Er%20ya%20cong%20shu%20--%20471%2C%20Chu%20ban%2C%20Taibei%20Shi%2C%20China%20%28Republic%20--%20%E7%88%BE%E9%9B%85%E5%87%BA%E7%89%88%E7%A4%BE%20--%209789576394485%20--%204728eee29b4e25191664745612ebf3b4%20--%20Anna%E2%80%99s%20Archive.epub"
   },
   {
     "author": "楊伯峻",
