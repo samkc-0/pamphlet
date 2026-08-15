@@ -54,11 +54,15 @@ function paginateChapter(
 
   for (const paragraph of chapter.paragraphs) {
     const nextParagraphs = [...pageParagraphs, paragraph];
-    const nextHeight = measurePage(measurer, chapter.chapterTitle, nextParagraphs);
+    const nextHeight = measurePage(
+      measurer,
+      getPageChapterTitle(chapter, pageIndex),
+      nextParagraphs
+    );
 
     if (pageParagraphs.length > 0 && nextHeight > maxHeight) {
       pages.push({
-        chapterTitle: chapter.chapterTitle,
+        chapterTitle: getPageChapterTitle(chapter, pageIndex),
         id: `${chapter.id}-${pageIndex}`,
         paragraphs: pageParagraphs
       });
@@ -69,10 +73,22 @@ function paginateChapter(
       pageParagraphs = nextParagraphs;
     }
 
-    if (measurePage(measurer, chapter.chapterTitle, pageParagraphs) > maxHeight) {
-      const split = splitOversizedParagraph(measurer, chapter, pageParagraphs[0], maxHeight);
+    if (
+      measurePage(
+        measurer,
+        getPageChapterTitle(chapter, pageIndex),
+        pageParagraphs
+      ) > maxHeight
+    ) {
+      const split = splitOversizedParagraph(
+        measurer,
+        chapter,
+        pageIndex,
+        pageParagraphs[0],
+        maxHeight
+      );
       pages.push(...split.pages.map((paragraphs, index) => ({
-        chapterTitle: chapter.chapterTitle,
+        chapterTitle: getPageChapterTitle(chapter, pageIndex + index),
         id: `${chapter.id}-${pageIndex + index}`,
         paragraphs
       })));
@@ -83,7 +99,7 @@ function paginateChapter(
 
   if (pageParagraphs.length > 0) {
     pages.push({
-      chapterTitle: chapter.chapterTitle,
+      chapterTitle: getPageChapterTitle(chapter, pageIndex),
       id: `${chapter.id}-${pageIndex}`,
       paragraphs: pageParagraphs
     });
@@ -95,6 +111,7 @@ function paginateChapter(
 function splitOversizedParagraph(
   measurer: ReturnType<typeof createMeasurer>,
   chapter: EpubSection,
+  pageIndex: number,
   paragraph: string,
   maxHeight: number
 ) {
@@ -105,9 +122,15 @@ function splitOversizedParagraph(
   for (const word of words) {
     const candidate = current ? `${current} ${word}` : word;
 
-    if (current && measurePage(measurer, chapter.chapterTitle, [candidate]) > maxHeight) {
+    if (
+      current &&
+      measurePage(measurer, getPageChapterTitle(chapter, pageIndex), [
+        candidate
+      ]) > maxHeight
+    ) {
       pages.push([current]);
       current = word;
+      pageIndex += 1;
     } else {
       current = candidate;
     }
@@ -117,6 +140,10 @@ function splitOversizedParagraph(
     pages,
     remainder: current
   };
+}
+
+function getPageChapterTitle(chapter: EpubSection, pageIndex: number) {
+  return pageIndex === 1 ? chapter.chapterTitle : undefined;
 }
 
 function measurePage(
