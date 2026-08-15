@@ -87,6 +87,18 @@ type BookMetadataEdit = {
   title: string;
 };
 
+type PersistedAppState = {
+  activePageByRowId: Record<string, string>;
+  activeRowId: string;
+  animationsEnabled: boolean;
+  bookMetadataEdits: Record<string, BookMetadataEdit>;
+  isDarkMode: boolean;
+  openBookIds: string[];
+  savedPageByBookId: Record<string, string>;
+  version: 1;
+};
+
+const APP_STATE_STORAGE_KEY = "pamphlet:app-state";
 const LIBRARY_BOOKS_PER_PAGE = 5;
 const LONG_PRESS_MS = 550;
 const MAX_OPEN_BOOKS = 5;
@@ -97,13 +109,20 @@ const LANGUAGE_CHOICES = [
 ];
 
 function App() {
-  const [animationsEnabled, setAnimationsEnabled] = useState(true);
-  const [isDarkMode, setIsDarkMode] = useState(false);
+  const [initialPersistedState] = useState(readPersistedAppState);
+  const [animationsEnabled, setAnimationsEnabled] = useState(
+    () => initialPersistedState.animationsEnabled
+  );
+  const [isDarkMode, setIsDarkMode] = useState(
+    () => initialPersistedState.isDarkMode
+  );
   const [bookMetadataEdits, setBookMetadataEdits] = useState<
     Record<string, BookMetadataEdit>
-  >({});
+  >(() => initialPersistedState.bookMetadataEdits);
   const [editingBookId, setEditingBookId] = useState<string | null>(null);
-  const [openBookIds, setOpenBookIds] = useState<string[]>([]);
+  const [openBookIds, setOpenBookIds] = useState<string[]>(
+    () => initialPersistedState.openBookIds
+  );
   const [loadedBooks, setLoadedBooks] = useState<Record<string, LoadedBook>>(
     {}
   );
@@ -112,10 +131,13 @@ function App() {
   >({});
   const [activePageByRowId, setActivePageByRowId] = useState<
     Record<string, string>
-  >({});
+  >(() => initialPersistedState.activePageByRowId);
   const [savedPageByBookId, setSavedPageByBookId] = useState<
     Record<string, string>
-  >({});
+  >(() => initialPersistedState.savedPageByBookId);
+  const [activeRowId, setActiveRowId] = useState(
+    () => initialPersistedState.activeRowId
+  );
   const [pageJump, setPageJump] = useState<PageJump | null>(null);
   const pageJumpSerial = useRef(0);
   const [viewportKey, setViewportKey] = useState(() => getViewportKey());
@@ -158,6 +180,27 @@ function App() {
       window.removeEventListener("orientationchange", onResize);
     };
   }, []);
+
+  useEffect(() => {
+    writePersistedAppState({
+      activePageByRowId,
+      activeRowId,
+      animationsEnabled,
+      bookMetadataEdits,
+      isDarkMode,
+      openBookIds,
+      savedPageByBookId,
+      version: 1
+    });
+  }, [
+    activePageByRowId,
+    activeRowId,
+    animationsEnabled,
+    bookMetadataEdits,
+    isDarkMode,
+    openBookIds,
+    savedPageByBookId
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -284,8 +327,10 @@ function App() {
     <div className={isDarkMode ? "dark" : ""}>
       <SwipeWorkspace
         animations={animationsEnabled}
-        initialRowId="library"
-        onStateChange={({ activePageByRowId }) => {
+        initialPageByRowId={activePageByRowId}
+        initialRowId={activeRowId}
+        onStateChange={({ activePageByRowId, activeRowId }) => {
+          setActiveRowId(activeRowId);
           setActivePageByRowId((current) =>
             shallowEqualRecords(current, activePageByRowId)
               ? current
@@ -942,6 +987,158 @@ function BookStatusScreen({
       </div>
     </div>
   );
+}
+
+function getDefaultPersistedAppState(): PersistedAppState {
+  return {
+    activePageByRowId: {
+      library: "books-1",
+      settings: "main"
+    },
+    activeRowId: "library",
+    animationsEnabled: true,
+    bookMetadataEdits: {},
+    isDarkMode: false,
+    openBookIds: [],
+    savedPageByBookId: {},
+    version: 1
+  };
+}
+
+function readPersistedAppState(): PersistedAppState {
+  if (typeof window === "undefined") {
+    return getDefaultPersistedAppState();
+  }
+
+  try {
+    const rawState = window.localStorage.getItem(APP_STATE_STORAGE_KEY);
+
+    if (!rawState) {
+      return getDefaultPersistedAppState();
+    }
+
+    const parsedState: unknown = JSON.parse(rawState);
+
+    if (!isRecord(parsedState) || parsedState.version !== 1) {
+      return getDefaultPersistedAppState();
+    }
+
+    return normalizePersistedAppState(parsedState);
+  } catch {
+    return getDefaultPersistedAppState();
+  }
+}
+
+function writePersistedAppState(state: PersistedAppState) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+  } catch {
+    // Persisting app state is best-effort; the in-memory app should keep working.
+  }
+}
+
+function normalizePersistedAppState(
+  state: Record<string, unknown>
+): PersistedAppState {
+  const defaultState = getDefaultPersistedAppState();
+  const activePageByRowId = getStringRecord(state.activePageByRowId);
+  const savedPageByBookId = getStringRecord(state.savedPageByBookId);
+  const openBookIds = getPersistedOpenBookIds(state.openBookIds);
+  const bookMetadataEdits = getPersistedBookMetadataEdits(
+    state.bookMetadataEdits
+  );
+  const activeRowId =
+    typeof state.activeRowId === "string" &&
+    isKnownWorkspaceRowId(state.activeRowId, openBookIds)
+      ? state.activeRowId
+      : defaultState.activeRowId;
+
+  return {
+    activePageByRowId: {
+      ...defaultState.activePageByRowId,
+      ...activePageByRowId
+    },
+    activeRowId,
+    animationsEnabled:
+      typeof state.animationsEnabled === "boolean"
+        ? state.animationsEnabled
+        : defaultState.animationsEnabled,
+    bookMetadataEdits,
+    isDarkMode:
+      typeof state.isDarkMode === "boolean"
+        ? state.isDarkMode
+        : defaultState.isDarkMode,
+    openBookIds,
+    savedPageByBookId,
+    version: 1
+  };
+}
+
+function getPersistedOpenBookIds(value: unknown) {
+  if (!Array.isArray(value)) return [];
+
+  const knownBookIds = new Set(BOOKS.map((book) => book.id));
+  const openBookIds: string[] = [];
+
+  for (const bookId of value) {
+    if (
+      typeof bookId === "string" &&
+      knownBookIds.has(bookId) &&
+      !openBookIds.includes(bookId)
+    ) {
+      openBookIds.push(bookId);
+    }
+  }
+
+  return openBookIds.slice(0, MAX_OPEN_BOOKS);
+}
+
+function getPersistedBookMetadataEdits(value: unknown) {
+  if (!isRecord(value)) return {};
+
+  const edits: Record<string, BookMetadataEdit> = {};
+
+  for (const [bookId, metadata] of Object.entries(value)) {
+    if (!isRecord(metadata)) continue;
+
+    const title = metadata.title;
+    const author = metadata.author;
+    const languageCode = metadata.languageCode;
+
+    if (
+      typeof title === "string" &&
+      typeof author === "string" &&
+      typeof languageCode === "string"
+    ) {
+      edits[bookId] = {
+        author,
+        languageCode: getSupportedLanguageCode(languageCode),
+        title
+      };
+    }
+  }
+
+  return edits;
+}
+
+function getStringRecord(value: unknown) {
+  if (!isRecord(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string"
+    )
+  );
+}
+
+function isKnownWorkspaceRowId(rowId: string, openBookIds: string[]) {
+  return rowId === "settings" || rowId === "library" || openBookIds.includes(rowId);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function getBookMetadata(

@@ -38,6 +38,7 @@ export type WorkspaceRow = {
 
 type SwipeWorkspaceProps = {
   animations?: boolean;
+  initialPageByRowId?: Record<string, string>;
   initialRowId?: string;
   keyboard?: boolean;
   onStateChange?: (state: {
@@ -55,6 +56,7 @@ type SwipeWorkspaceProps = {
 
 export function SwipeWorkspace({
   animations = true,
+  initialPageByRowId,
   initialRowId,
   keyboard = true,
   onStateChange,
@@ -67,7 +69,7 @@ export function SwipeWorkspace({
   );
   const [activePageByRowId, setActivePageByRowId] = useState<
     Record<string, string>
-  >(() => getInitialPageMap(rows));
+  >(() => getInitialPageMap(rows, initialPageByRowId));
   const [transition, setTransition] = useState<ScreenTransition | null>(null);
   const pointerStart = useRef<Point | null>(null);
   const processedPageJumpSerial = useRef<number | null>(null);
@@ -104,7 +106,10 @@ export function SwipeWorkspace({
 
         next[row.id] = hasExistingPage
           ? existingPageId
-          : row.initialPageId ?? row.pages[0]?.id ?? "";
+          : row.initialPageId ??
+            initialPageByRowId?.[row.id] ??
+            row.pages[0]?.id ??
+            "";
       }
 
       return next;
@@ -113,7 +118,7 @@ export function SwipeWorkspace({
     setActiveRowId((current) =>
       rows.some((row) => row.id === current) ? current : rows[0]?.id ?? ""
     );
-  }, [rows]);
+  }, [initialPageByRowId, rows]);
 
   useEffect(() => {
     if (!pageJump) return;
@@ -340,9 +345,15 @@ function Screen({
   );
 }
 
-function getInitialPageMap(rows: WorkspaceRow[]) {
+function getInitialPageMap(
+  rows: WorkspaceRow[],
+  initialPageByRowId?: Record<string, string>
+) {
   return Object.fromEntries(
-    rows.map((row) => [row.id, row.initialPageId ?? row.pages[0]?.id ?? ""])
+    rows.map((row) => [
+      row.id,
+      row.initialPageId ?? initialPageByRowId?.[row.id] ?? row.pages[0]?.id ?? ""
+    ])
   );
 }
 
