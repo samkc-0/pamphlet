@@ -1,4 +1,4 @@
-import { mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const assetDirectory = path.resolve("public/book-assets");
@@ -21,8 +21,8 @@ const books = await Promise.all(files.map(async (file) => {
   const id = uniqueSlug(slugify(file), usedSlugs);
   const alias = `${id}.epub`;
 
-  await symlink(
-    path.relative(assetDirectory, path.join(booksDirectory, file)),
+  await copyFile(
+    path.join(booksDirectory, file),
     path.join(assetDirectory, alias)
   );
 
