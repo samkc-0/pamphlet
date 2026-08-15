@@ -386,7 +386,7 @@ function ReaderScreen({
         </div>
       </header>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-col justify-center overflow-hidden py-5 sm:py-8">
+      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-col justify-start overflow-hidden py-5 sm:py-8">
         <div className="reader-page-content">
           {chapterTitle ? (
             <div className="reader-chapter-heading">{chapterTitle}</div>

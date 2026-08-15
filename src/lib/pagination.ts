@@ -192,5 +192,5 @@ function getHorizontalReaderPadding() {
 }
 
 function getVerticalReaderChrome() {
-  return window.innerWidth >= 640 ? 210 : 170;
+  return window.innerWidth >= 640 ? 176 : 144;
 }
