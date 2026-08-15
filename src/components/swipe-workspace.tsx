@@ -13,6 +13,7 @@ const TRANSITION_MS = 300;
 type Direction = "left" | "right" | "up" | "down";
 
 type Point = {
+  interactive: boolean;
   x: number;
   y: number;
 };
@@ -68,6 +69,7 @@ export function SwipeWorkspace({
   const [transition, setTransition] = useState<ScreenTransition | null>(null);
   const pointerStart = useRef<Point | null>(null);
   const processedPageJumpSerial = useRef<number | null>(null);
+  const suppressClick = useRef(false);
   const transitionTimer = useRef<number | null>(null);
 
   const rowIndex = Math.max(
@@ -209,7 +211,7 @@ export function SwipeWorkspace({
     if (!keyboard) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isInteractiveTarget(event.target)) return;
+      if (isTextEntryTarget(event.target)) return;
 
       if (event.key === "ArrowLeft") navigate("left");
       if (event.key === "ArrowRight") navigate("right");
@@ -235,12 +237,17 @@ export function SwipeWorkspace({
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!swipe) return;
-    if (isInteractiveTarget(event.target)) {
+
+    if (isTextEntryTarget(event.target)) {
       pointerStart.current = null;
       return;
     }
 
-    pointerStart.current = { x: event.clientX, y: event.clientY };
+    pointerStart.current = {
+      interactive: isInteractiveTarget(event.target),
+      x: event.clientX,
+      y: event.clientY
+    };
   };
 
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -248,6 +255,7 @@ export function SwipeWorkspace({
 
     const deltaX = event.clientX - pointerStart.current.x;
     const deltaY = event.clientY - pointerStart.current.y;
+    const startedOnInteractive = pointerStart.current.interactive;
     pointerStart.current = null;
 
     if (
@@ -256,6 +264,15 @@ export function SwipeWorkspace({
     ) {
       return;
     }
+
+    if (startedOnInteractive) {
+      suppressClick.current = true;
+      window.setTimeout(() => {
+        suppressClick.current = false;
+      }, 250);
+    }
+
+    event.preventDefault();
 
     if (Math.abs(deltaX) > Math.abs(deltaY)) {
       navigate(deltaX < 0 ? "right" : "left");
@@ -274,6 +291,13 @@ export function SwipeWorkspace({
         pointerStart.current = null;
       }}
       onPointerUp={handlePointerUp}
+      onClickCapture={(event) => {
+        if (!suppressClick.current) return;
+
+        suppressClick.current = false;
+        event.preventDefault();
+        event.stopPropagation();
+      }}
     >
       <div className="relative h-full w-full overflow-hidden">
         {transition ? (
@@ -320,6 +344,20 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function isInteractiveTarget(target: EventTarget | null) {
+  return matchesTarget(
+    target,
+    "a, button, input, select, textarea, summary, [contenteditable='true']"
+  );
+}
+
+function isTextEntryTarget(target: EventTarget | null) {
+  return matchesTarget(
+    target,
+    "input, select, textarea, [contenteditable='true']"
+  );
+}
+
+function matchesTarget(target: EventTarget | null, selector: string) {
   const element =
     target instanceof Element
       ? target
@@ -328,11 +366,7 @@ function isInteractiveTarget(target: EventTarget | null) {
         : null;
 
   return element
-    ? Boolean(
-        element.closest(
-          "a, button, input, select, textarea, summary, [contenteditable='true']"
-        )
-      )
+    ? Boolean(element.closest(selector))
     : false;
 }
 
