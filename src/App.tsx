@@ -1,7 +1,4 @@
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-
-import { Button } from "@/components/ui/button";
 
 const ROWS = ["A", "B", "C", "D", "E", "F"] as const;
 const COLUMN_COUNT = 8;
@@ -171,72 +168,6 @@ function App() {
         )}
       </div>
 
-      <div className="pointer-events-none fixed inset-x-0 top-0 flex items-center justify-between p-3 sm:p-4">
-        <div className="rounded-md border border-border bg-background/90 px-3 py-2 text-sm shadow-sm backdrop-blur">
-          <span className="font-medium">{coordinate}</span>
-          <span className="ml-2 text-muted-foreground">
-            Row positions: {ROWS.map((row, index) => `${row}${rowColumns[index] + 1}`).join(", ")}
-          </span>
-        </div>
-      </div>
-
-      <nav
-        aria-label="Grid navigation"
-        className="pointer-events-none fixed bottom-4 left-1/2 grid -translate-x-1/2 grid-cols-3 gap-2"
-      >
-        <div />
-        <Button
-          aria-label="Move up"
-          className="pointer-events-auto bg-background/95 text-foreground shadow-md hover:bg-muted"
-          disabled={currentRow === 0}
-          onClick={() => navigate("up")}
-          size="icon"
-          variant="secondary"
-        >
-          <ArrowUp className="h-5 w-5" />
-        </Button>
-        <div />
-        <Button
-          aria-label="Move left"
-          className="pointer-events-auto bg-background/95 text-foreground shadow-md hover:bg-muted"
-          disabled={currentColumn === 0}
-          onClick={() => navigate("left")}
-          size="icon"
-          variant="secondary"
-        >
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <Button
-          aria-label="Current screen"
-          className="pointer-events-auto min-w-16 bg-background/95 px-3 text-foreground shadow-md hover:bg-background/95"
-          disabled
-          variant="secondary"
-        >
-          {coordinate}
-        </Button>
-        <Button
-          aria-label="Move right"
-          className="pointer-events-auto bg-background/95 text-foreground shadow-md hover:bg-muted"
-          disabled={currentColumn === COLUMN_COUNT - 1}
-          onClick={() => navigate("right")}
-          size="icon"
-          variant="secondary"
-        >
-          <ArrowRight className="h-5 w-5" />
-        </Button>
-        <div />
-        <Button
-          aria-label="Move down"
-          className="pointer-events-auto bg-background/95 text-foreground shadow-md hover:bg-muted"
-          disabled={currentRow === ROWS.length - 1}
-          onClick={() => navigate("down")}
-          size="icon"
-          variant="secondary"
-        >
-          <ArrowDown className="h-5 w-5" />
-        </Button>
-        <div />
-      </nav>
     </main>
   );
 }
