@@ -390,11 +390,15 @@ function LibraryScreen({
             const activePageId =
               activePageByRowId[book.id] ?? savedPageByBookId[book.id];
             const activePageIndex = Math.max(
-              0,
+              -1,
               pages.findIndex((page) => page.id === activePageId)
             );
             const progress = pages.length
-              ? ((activePageId ? activePageIndex + 1 : 0) / pages.length) * 100
+              ? ((activePageId && activePageIndex >= 0
+                  ? activePageIndex + 1
+                  : 0) /
+                  pages.length) *
+                100
               : 0;
             const rowNumber = openBookIds.indexOf(book.id) + 1;
 
@@ -426,7 +430,7 @@ function LibraryScreen({
                   >
                     <span
                       className="block h-full rounded-full bg-neutral-950"
-                      style={{ width: `${isOpen ? progress : 0}%` }}
+                      style={{ width: `${progress}%` }}
                     />
                   </span>
                 </button>
