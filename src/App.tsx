@@ -273,7 +273,7 @@ function LibraryScreen({
   return (
     <div className="flex min-h-full items-center px-5 py-8 sm:px-10 sm:py-12">
       <div className="mx-auto w-full max-w-3xl">
-        <header className="mb-8 border-b border-neutral-300 pb-5">
+        <header className="mb-8 border-b border-neutral-300 pb-5 text-center">
           <div className="text-sm uppercase tracking-[0.18em] text-neutral-500">
             {ROW_MARKERS[0]} Library
           </div>
@@ -292,7 +292,7 @@ function LibraryScreen({
               <li className="py-4" key={book.id}>
                 <button
                   aria-pressed={isOpen}
-                  className="block w-full px-2 text-left outline-none focus-visible:underline"
+                  className="block w-full px-2 text-center outline-none focus-visible:underline"
                   onClick={() => toggleBook(book.id)}
                   type="button"
                 >
