@@ -336,6 +336,9 @@ function LibraryScreen({
                       {isOpen ? ROW_MARKERS[rowNumber] : ROW_MARKERS[0]}
                     </span>
                   </span>
+                  <span className="mt-1 block text-base text-neutral-600">
+                    {loadedBook?.data?.author ?? book.author}
+                  </span>
                   <span
                     aria-hidden="true"
                     className="mx-auto mt-3 block h-0.5 w-full max-w-md overflow-hidden rounded-full bg-neutral-200"
@@ -344,9 +347,6 @@ function LibraryScreen({
                       className="block h-full rounded-full bg-neutral-950"
                       style={{ width: `${isOpen ? progress : 0}%` }}
                     />
-                  </span>
-                  <span className="mt-1 block text-base text-neutral-600">
-                    {loadedBook?.data?.author ?? book.author}
                   </span>
                 </button>
               </li>
