@@ -158,7 +158,7 @@ function App() {
       setOpenBookIds((current) =>
         current.includes(bookId)
           ? current.filter((id) => id !== bookId)
-          : [...current, bookId]
+          : [...current.filter((id) => id !== bookId), bookId]
       );
     }, 0);
   }, []);
@@ -205,9 +205,12 @@ function createArticleRows({
         }
       ]
     },
-    ...BOOKS.filter((book) => openBookIds.includes(book.id)).map((book) =>
-      createBookRow(book, loadedBooks[book.id], paginatedBooks[book.id]?.pages)
-    )
+    ...openBookIds
+      .map((bookId) => BOOKS.find((book) => book.id === bookId))
+      .filter((book): book is BookSource => Boolean(book))
+      .map((book) =>
+        createBookRow(book, loadedBooks[book.id], paginatedBooks[book.id]?.pages)
+      )
   ];
 }
 
@@ -283,10 +286,7 @@ function LibraryScreen({
           {books.map((book) => {
             const isOpen = openBookIds.includes(book.id);
             const loadedBook = loadedBooks[book.id];
-            const rowNumber =
-              books
-                .filter((candidate) => openBookIds.includes(candidate.id))
-                .findIndex((candidate) => candidate.id === book.id) + 1;
+            const rowNumber = openBookIds.indexOf(book.id) + 1;
 
             return (
               <li className="py-4" key={book.id}>
