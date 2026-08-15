@@ -8,6 +8,60 @@ import {
 import { loadEpub, type EpubBook } from "@/lib/epub";
 import { paginateBookByLayout, type ReaderPage } from "@/lib/pagination";
 
+const ROW_MARKERS = [
+  "⓪",
+  "①",
+  "②",
+  "③",
+  "④",
+  "⑤",
+  "⑥",
+  "⑦",
+  "⑧",
+  "⑨",
+  "⑩",
+  "⑪",
+  "⑫",
+  "⑬",
+  "⑭",
+  "⑮",
+  "⑯",
+  "⑰",
+  "⑱",
+  "⑲",
+  "⑳",
+  "㉑",
+  "㉒",
+  "㉓",
+  "㉔",
+  "㉕",
+  "㉖",
+  "㉗",
+  "㉘",
+  "㉙",
+  "㉚",
+  "㉛",
+  "㉜",
+  "㉝",
+  "㉞",
+  "㉟",
+  "㊱",
+  "㊲",
+  "㊳",
+  "㊴",
+  "㊵",
+  "㊶",
+  "㊷",
+  "㊸",
+  "㊹",
+  "㊺",
+  "㊻",
+  "㊼",
+  "㊽",
+  "㊾",
+  "㊿"
+];
+
 type LoadedBook = {
   data?: EpubBook;
   error?: string;
@@ -242,10 +296,12 @@ function LibraryScreen({
                   <span className="block text-2xl leading-tight text-neutral-950">
                     {loadedBook?.data?.title ?? book.title}
                     <span
-                      aria-hidden="true"
-                      className="ml-2 inline-flex w-8 items-center justify-start text-neutral-500"
+                      aria-hidden={!isOpen}
+                      className={`ml-2 inline-block w-8 text-left text-neutral-500 ${
+                        isOpen ? "opacity-100" : "opacity-0"
+                      }`}
                     >
-                      <RowMarker number={isOpen ? rowNumber : undefined} />
+                      {isOpen ? ROW_MARKERS[rowNumber] : ROW_MARKERS[0]}
                     </span>
                   </span>
                   <span className="mt-1 block text-base text-neutral-600">
@@ -306,39 +362,6 @@ function ReaderScreen({
         {pageNumber}
       </footer>
     </article>
-  );
-}
-
-function RowMarker({ number }: { number?: number }) {
-  return (
-    <svg
-      aria-hidden="true"
-      className="h-[1em] w-[1em] overflow-visible"
-      focusable="false"
-      viewBox="0 0 32 32"
-    >
-      <circle
-        cx="16"
-        cy="16"
-        fill="none"
-        r="14"
-        stroke="currentColor"
-        strokeWidth="1.8"
-      />
-      {number ? (
-        <text
-          dominantBaseline="central"
-          fill="currentColor"
-          fontFamily="Georgia, Cambria, 'Times New Roman', Times, serif"
-          fontSize={number > 9 ? 14 : 17}
-          textAnchor="middle"
-          x="16"
-          y="16"
-        >
-          {number}
-        </text>
-      ) : null}
-    </svg>
   );
 }
 
