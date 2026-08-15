@@ -196,6 +196,10 @@ export function SwipeWorkspace({
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!swipe) return;
+    if (isInteractiveTarget(event.target)) {
+      pointerStart.current = null;
+      return;
+    }
 
     pointerStart.current = { x: event.clientX, y: event.clientY };
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -272,6 +276,16 @@ function getInitialPageMap(rows: WorkspaceRow[]) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function isInteractiveTarget(target: EventTarget) {
+  return target instanceof Element
+    ? Boolean(
+        target.closest(
+          "a, button, input, select, textarea, summary, [contenteditable='true']"
+        )
+      )
+    : false;
 }
 
 function getExitClass(direction: Direction) {
