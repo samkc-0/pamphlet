@@ -74,11 +74,10 @@ type PaginatedBook = {
 };
 
 const LIBRARY_BOOKS_PER_PAGE = 6;
+const MAX_OPEN_BOOKS = 5;
 
 function App() {
-  const [openBookIds, setOpenBookIds] = useState(() =>
-    BOOKS.map((book) => book.id)
-  );
+  const [openBookIds, setOpenBookIds] = useState<string[]>([]);
   const [loadedBooks, setLoadedBooks] = useState<Record<string, LoadedBook>>(
     {}
   );
@@ -163,7 +162,9 @@ function App() {
       setOpenBookIds((current) =>
         current.includes(bookId)
           ? current.filter((id) => id !== bookId)
-          : [...current.filter((id) => id !== bookId), bookId]
+          : [...current.filter((id) => id !== bookId), bookId].slice(
+              -MAX_OPEN_BOOKS
+            )
       );
     }, 0);
   }, []);
@@ -311,6 +312,9 @@ function LibraryScreen({
               {pageNumber} / {pageTotal}
             </div>
           ) : null}
+          <div className="mt-2 text-xs text-neutral-400">
+            up to {MAX_OPEN_BOOKS} open
+          </div>
         </header>
 
         <ol>
