@@ -438,6 +438,7 @@ function App() {
       ) : null}
       {editingBook && editingMetadata ? (
         <BookMetadataDialog
+          animationsEnabled={animationsEnabled}
           book={editingBook}
           metadata={editingMetadata}
           onClose={() => setEditingBookId(null)}
@@ -609,8 +610,10 @@ function SettingsScreen({
       <div className="mx-auto w-full max-w-3xl text-center">
         <fieldset className="mx-auto max-w-md border border-neutral-300 px-6 pb-7 pt-5 dark:border-neutral-700">
           <legend className="mx-auto px-3 text-neutral-500 dark:text-neutral-400">
-            <Settings aria-hidden="true" className="h-4 w-4" strokeWidth={1.75} />
-            <span className="sr-only">Settings</span>
+            <SpinningCog
+              animationsEnabled={animationsEnabled}
+              label="Spin settings icon"
+            />
           </legend>
 
           <div className="space-y-4">
@@ -674,12 +677,46 @@ function LoadingScreen({
   );
 }
 
+function SpinningCog({
+  animationsEnabled,
+  label
+}: {
+  animationsEnabled: boolean;
+  label: string;
+}) {
+  const [spinCount, setSpinCount] = useState(0);
+
+  return (
+    <button
+      aria-label={label}
+      className="inline-grid h-7 w-7 place-items-center text-neutral-500 outline-none focus-visible:text-neutral-950 dark:text-neutral-400 dark:focus-visible:text-neutral-100"
+      onClick={() => {
+        if (animationsEnabled) {
+          setSpinCount((current) => current + 1);
+        }
+      }}
+      type="button"
+    >
+      <Settings
+        aria-hidden="true"
+        className={`h-4 w-4 ${
+          animationsEnabled && spinCount > 0 ? "cog-spin-once" : ""
+        }`}
+        key={spinCount}
+        strokeWidth={1.75}
+      />
+    </button>
+  );
+}
+
 function BookMetadataDialog({
+  animationsEnabled,
   book,
   metadata,
   onClose,
   onSave
 }: {
+  animationsEnabled: boolean;
   book: BookSource;
   metadata: BookMetadataEdit;
   onClose: () => void;
@@ -729,7 +766,10 @@ function BookMetadataDialog({
           className="flex justify-center text-neutral-500 dark:text-neutral-400"
           id="book-metadata-title"
         >
-          <Settings aria-hidden="true" className="h-4 w-4" strokeWidth={1.75} />
+          <SpinningCog
+            animationsEnabled={animationsEnabled}
+            label="Spin book settings icon"
+          />
           <span className="sr-only">Book settings</span>
         </h2>
 
