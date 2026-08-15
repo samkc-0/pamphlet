@@ -110,6 +110,7 @@ const LANGUAGE_CHOICES = [
 
 function App() {
   const [isStateLoaded, setIsStateLoaded] = useState(false);
+  const [isSyncingState, setIsSyncingState] = useState(false);
   const [defaultPersistedState] = useState(getDefaultPersistedAppState);
   const [animationsEnabled, setAnimationsEnabled] = useState(
     () => defaultPersistedState.animationsEnabled
@@ -141,6 +142,7 @@ function App() {
   );
   const [pageJump, setPageJump] = useState<PageJump | null>(null);
   const pageJumpSerial = useRef(0);
+  const syncIndicatorTimer = useRef<number | null>(null);
   const [viewportKey, setViewportKey] = useState(() => getViewportKey());
 
   useEffect(() => {
@@ -200,6 +202,11 @@ function App() {
   useEffect(() => {
     if (!isStateLoaded) return;
 
+    if (syncIndicatorTimer.current) {
+      window.clearTimeout(syncIndicatorTimer.current);
+    }
+
+    setIsSyncingState(true);
     writePersistedAppState({
       activePageByRowId,
       activeRowId,
@@ -210,6 +217,10 @@ function App() {
       savedPageByBookId,
       version: 1
     });
+    syncIndicatorTimer.current = window.setTimeout(() => {
+      setIsSyncingState(false);
+      syncIndicatorTimer.current = null;
+    }, 450);
   }, [
     activePageByRowId,
     activeRowId,
@@ -220,6 +231,14 @@ function App() {
     openBookIds,
     savedPageByBookId
   ]);
+
+  useEffect(() => {
+    return () => {
+      if (syncIndicatorTimer.current) {
+        window.clearTimeout(syncIndicatorTimer.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!isStateLoaded) return;
@@ -317,6 +336,7 @@ function App() {
         animationsEnabled,
         bookMetadataEdits,
         isDarkMode,
+        isSyncingState,
         loadedBooks,
         openBookIds,
         activePageByRowId,
@@ -333,6 +353,7 @@ function App() {
       animationsEnabled,
       bookMetadataEdits,
       isDarkMode,
+      isSyncingState,
       jumpToBookPage,
       loadedBooks,
       openBookIds,
@@ -399,6 +420,7 @@ function createArticleRows({
   animationsEnabled,
   bookMetadataEdits,
   isDarkMode,
+  isSyncingState,
   jumpToBookPage,
   loadedBooks,
   openBookIds,
@@ -413,6 +435,7 @@ function createArticleRows({
   animationsEnabled: boolean;
   bookMetadataEdits: Record<string, BookMetadataEdit>;
   isDarkMode: boolean;
+  isSyncingState: boolean;
   jumpToBookPage: (bookId: string, pageId: string) => void;
   loadedBooks: Record<string, LoadedBook>;
   openBookIds: string[];
@@ -468,6 +491,7 @@ function createArticleRows({
         createBookRow(
           book,
           bookMetadataEdits[book.id],
+          isSyncingState,
           loadedBooks[book.id],
           paginatedBooks[book.id]?.pages,
           savedPageByBookId[book.id],
@@ -480,6 +504,7 @@ function createArticleRows({
 function createBookRow(
   book: BookSource,
   metadataEdit?: BookMetadataEdit,
+  isSyncingState?: boolean,
   loadedBook?: LoadedBook,
   pages?: ReaderPage[],
   savedPageId?: string,
@@ -496,6 +521,7 @@ function createBookRow(
         render: () => (
           <ReaderScreen
             author={metadata.author}
+            isSyncingState={Boolean(isSyncingState)}
             languageCode={metadata.languageCode}
             pageNumber={index + 1}
             pageTotal={pages.length}
@@ -912,6 +938,7 @@ function LibraryScreen({
 function ReaderScreen({
   author,
   chapterTitle,
+  isSyncingState,
   languageCode,
   onPageChange,
   paragraphs,
@@ -921,6 +948,7 @@ function ReaderScreen({
 }: {
   author: string;
   chapterTitle?: string;
+  isSyncingState: boolean;
   languageCode: string;
   onPageChange: (pageNumber: number) => void;
   pageNumber: number;
@@ -962,6 +990,14 @@ function ReaderScreen({
         </div>
         <label className="flex shrink-0 items-baseline gap-1 text-neutral-500">
           <span className="sr-only">Page</span>
+          <span
+            aria-label={isSyncingState ? "Syncing progress" : undefined}
+            className={`mb-0.5 h-1.5 w-1.5 rounded-full bg-neutral-950 transition-opacity duration-500 dark:bg-neutral-100 ${
+              isSyncingState
+                ? "animate-pulse opacity-40"
+                : "pointer-events-none opacity-0"
+            }`}
+          />
           <input
             aria-label={`Page, 1 through ${pageTotal}`}
             className="w-12 appearance-none bg-transparent text-right text-neutral-950 outline-none [font-variant-numeric:tabular-nums] focus-visible:underline dark:text-neutral-100"
