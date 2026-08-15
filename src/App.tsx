@@ -170,13 +170,17 @@ function App() {
 
   const toggleBook = useCallback((bookId: string) => {
     window.setTimeout(() => {
-      setOpenBookIds((current) =>
-        current.includes(bookId)
-          ? current.filter((id) => id !== bookId)
-          : [...current.filter((id) => id !== bookId), bookId].slice(
-              -MAX_OPEN_BOOKS
-            )
-      );
+      setOpenBookIds((current) => {
+        if (current.includes(bookId)) {
+          return current.filter((id) => id !== bookId);
+        }
+
+        if (current.length >= MAX_OPEN_BOOKS) {
+          return [...current.slice(0, MAX_OPEN_BOOKS - 1), bookId];
+        }
+
+        return [...current, bookId];
+      });
     }, 0);
   }, []);
 
