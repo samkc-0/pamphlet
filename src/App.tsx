@@ -302,7 +302,7 @@ function LibraryScreen({
           </h1>
         </header>
 
-        <ol className="divide-y divide-neutral-200">
+        <ol>
           {books.map((book) => {
             const isOpen = openBookIds.includes(book.id);
             const loadedBook = loadedBooks[book.id];
