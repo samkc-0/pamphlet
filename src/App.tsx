@@ -7,6 +7,10 @@ import {
   SwipeWorkspace,
   type WorkspaceRow
 } from "@/components/swipe-workspace";
+import {
+  readStoredAppState,
+  writeStoredAppState
+} from "@/lib/app-state-store";
 import { loadBookCatalog } from "@/lib/books-db";
 import { loadEpub, type EpubBook } from "@/lib/epub";
 import {
@@ -103,7 +107,6 @@ type PersistedAppState = {
   version: 1;
 };
 
-const APP_STATE_STORAGE_KEY = "pamphlet:app-state";
 const LIBRARY_BOOKS_PER_PAGE = 5;
 const LONG_PRESS_MS = 550;
 const MAX_OPEN_BOOKS = 5;
@@ -154,16 +157,24 @@ function App() {
   const [viewportKey, setViewportKey] = useState(() => getViewportKey());
 
   useEffect(() => {
-    const persistedState = readPersistedAppState();
+    let cancelled = false;
 
-    setActivePageByRowId(persistedState.activePageByRowId);
-    setActiveRowId(persistedState.activeRowId);
-    setAnimationsEnabled(persistedState.animationsEnabled);
-    setBookMetadataEdits(persistedState.bookMetadataEdits);
-    setIsDarkMode(persistedState.isDarkMode);
-    setOpenBookIds(persistedState.openBookIds);
-    setSavedPageByBookId(persistedState.savedPageByBookId);
-    setIsStateLoaded(true);
+    readPersistedAppState().then((persistedState) => {
+      if (cancelled) return;
+
+      setActivePageByRowId(persistedState.activePageByRowId);
+      setActiveRowId(persistedState.activeRowId);
+      setAnimationsEnabled(persistedState.animationsEnabled);
+      setBookMetadataEdits(persistedState.bookMetadataEdits);
+      setIsDarkMode(persistedState.isDarkMode);
+      setOpenBookIds(persistedState.openBookIds);
+      setSavedPageByBookId(persistedState.savedPageByBookId);
+      setIsStateLoaded(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -257,8 +268,8 @@ function App() {
       window.clearTimeout(syncIndicatorTimer.current);
     }
 
-    setIsSyncingState(true);
-    writePersistedAppState({
+    let cancelled = false;
+    const nextState: PersistedAppState = {
       activePageByRowId,
       activeRowId,
       animationsEnabled,
@@ -267,11 +278,21 @@ function App() {
       openBookIds,
       savedPageByBookId,
       version: 1
+    };
+
+    setIsSyncingState(true);
+    writePersistedAppState(nextState).finally(() => {
+      if (cancelled) return;
+
+      syncIndicatorTimer.current = window.setTimeout(() => {
+        setIsSyncingState(false);
+        syncIndicatorTimer.current = null;
+      }, 450);
     });
-    syncIndicatorTimer.current = window.setTimeout(() => {
-      setIsSyncingState(false);
-      syncIndicatorTimer.current = null;
-    }, 450);
+
+    return () => {
+      cancelled = true;
+    };
   }, [
     activePageByRowId,
     activeRowId,
@@ -1255,35 +1276,29 @@ function getDefaultPersistedAppState(): PersistedAppState {
   };
 }
 
-function readPersistedAppState(): PersistedAppState {
+async function readPersistedAppState(): Promise<PersistedAppState> {
   if (typeof window === "undefined") {
     return getDefaultPersistedAppState();
   }
 
   try {
-    const rawState = window.localStorage.getItem(APP_STATE_STORAGE_KEY);
+    const storedState = await readStoredAppState();
 
-    if (!rawState) {
+    if (!isRecord(storedState) || storedState.version !== 1) {
       return getDefaultPersistedAppState();
     }
 
-    const parsedState: unknown = JSON.parse(rawState);
-
-    if (!isRecord(parsedState) || parsedState.version !== 1) {
-      return getDefaultPersistedAppState();
-    }
-
-    return normalizePersistedAppState(parsedState);
+    return normalizePersistedAppState(storedState);
   } catch {
     return getDefaultPersistedAppState();
   }
 }
 
-function writePersistedAppState(state: PersistedAppState) {
+async function writePersistedAppState(state: PersistedAppState) {
   if (typeof window === "undefined") return;
 
   try {
-    window.localStorage.setItem(APP_STATE_STORAGE_KEY, JSON.stringify(state));
+    await writeStoredAppState(state);
   } catch {
     // Persisting app state is best-effort; the in-memory app should keep working.
   }
