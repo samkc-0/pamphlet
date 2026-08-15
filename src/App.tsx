@@ -73,7 +73,7 @@ type PaginatedBook = {
   viewportKey: string;
 };
 
-const LIBRARY_BOOKS_PER_PAGE = 6;
+const LIBRARY_BOOKS_PER_PAGE = 5;
 const MAX_OPEN_BOOKS = 5;
 
 function App() {
@@ -303,18 +303,15 @@ function LibraryScreen({
   return (
     <div className="flex min-h-full items-center px-5 py-8 sm:px-10 sm:py-12">
       <div className="mx-auto w-full max-w-3xl">
-        <header className="mb-8 border-neutral-300 pb-5 text-center">
+        <header className="mb-4 border-neutral-300 pb-2 text-center sm:mb-6 sm:pb-4">
           <h1 className="mt-4 text-4xl font-semibold leading-tight text-neutral-950 sm:text-6xl">
             Contents
           </h1>
           {pageTotal > 1 ? (
             <div className="mt-2 text-sm text-neutral-500">
-              {pageNumber} / {pageTotal}
+              {pageNumber} of {pageTotal}
             </div>
           ) : null}
-          <div className="mt-2 text-xs text-neutral-400">
-            up to {MAX_OPEN_BOOKS} open
-          </div>
         </header>
 
         <ol>
@@ -333,7 +330,7 @@ function LibraryScreen({
             const rowNumber = openBookIds.indexOf(book.id) + 1;
 
             return (
-              <li className="py-4" key={book.id}>
+              <li className="py-3 sm:py-4" key={book.id}>
                 <button
                   aria-pressed={isOpen}
                   className="block w-full px-2 text-center outline-none focus-visible:underline"
