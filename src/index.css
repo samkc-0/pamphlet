@@ -63,7 +63,10 @@
   }
 
   .reader-page-body p {
+    hyphens: auto;
     margin: 0;
+    overflow-wrap: break-word;
+    word-break: normal;
   }
 
   .reader-measurer {
