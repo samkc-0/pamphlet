@@ -97,6 +97,7 @@ const LANGUAGE_CHOICES = [
 ];
 
 function App() {
+  const [animationsEnabled, setAnimationsEnabled] = useState(true);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [bookMetadataEdits, setBookMetadataEdits] = useState<
     Record<string, BookMetadataEdit>
@@ -217,6 +218,10 @@ function App() {
     setIsDarkMode((current) => !current);
   }, []);
 
+  const toggleAnimations = useCallback(() => {
+    setAnimationsEnabled((current) => !current);
+  }, []);
+
   const saveBookMetadata = useCallback(
     (bookId: string, metadata: BookMetadataEdit) => {
       setBookMetadataEdits((current) => ({
@@ -245,6 +250,7 @@ function App() {
   const rows = useMemo(
     () =>
       createArticleRows({
+        animationsEnabled,
         bookMetadataEdits,
         isDarkMode,
         loadedBooks,
@@ -254,11 +260,13 @@ function App() {
         openBookSettings: setEditingBookId,
         paginatedBooks,
         savedPageByBookId,
+        toggleAnimations,
         toggleDarkMode,
         toggleBook
       }),
     [
       activePageByRowId,
+      animationsEnabled,
       bookMetadataEdits,
       isDarkMode,
       jumpToBookPage,
@@ -266,6 +274,7 @@ function App() {
       openBookIds,
       paginatedBooks,
       savedPageByBookId,
+      toggleAnimations,
       toggleDarkMode,
       toggleBook
     ]
@@ -274,6 +283,7 @@ function App() {
   return (
     <div className={isDarkMode ? "dark" : ""}>
       <SwipeWorkspace
+        animations={animationsEnabled}
         initialRowId="library"
         onStateChange={({ activePageByRowId }) => {
           setActivePageByRowId((current) =>
@@ -312,6 +322,7 @@ function App() {
 
 function createArticleRows({
   activePageByRowId,
+  animationsEnabled,
   bookMetadataEdits,
   isDarkMode,
   jumpToBookPage,
@@ -320,10 +331,12 @@ function createArticleRows({
   openBookSettings,
   paginatedBooks,
   savedPageByBookId,
+  toggleAnimations,
   toggleDarkMode,
   toggleBook
 }: {
   activePageByRowId: Record<string, string>;
+  animationsEnabled: boolean;
   bookMetadataEdits: Record<string, BookMetadataEdit>;
   isDarkMode: boolean;
   jumpToBookPage: (bookId: string, pageId: string) => void;
@@ -332,6 +345,7 @@ function createArticleRows({
   openBookSettings: (bookId: string) => void;
   paginatedBooks: Record<string, PaginatedBook>;
   savedPageByBookId: Record<string, string>;
+  toggleAnimations: () => void;
   toggleDarkMode: () => void;
   toggleBook: (bookId: string) => void;
 }): WorkspaceRow[] {
@@ -343,7 +357,9 @@ function createArticleRows({
           id: "main",
           render: () => (
             <SettingsScreen
+              animationsEnabled={animationsEnabled}
               isDarkMode={isDarkMode}
+              toggleAnimations={toggleAnimations}
               toggleDarkMode={toggleDarkMode}
             />
           )
@@ -445,10 +461,14 @@ function createBookRow(
 }
 
 function SettingsScreen({
+  animationsEnabled,
   isDarkMode,
+  toggleAnimations,
   toggleDarkMode
 }: {
+  animationsEnabled: boolean;
   isDarkMode: boolean;
+  toggleAnimations: () => void;
   toggleDarkMode: () => void;
 }) {
   return (
@@ -460,14 +480,25 @@ function SettingsScreen({
             <span className="sr-only">Settings</span>
           </legend>
 
-          <button
-            aria-pressed={isDarkMode}
-            className="mx-auto block text-lg leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400"
-            onClick={toggleDarkMode}
-            type="button"
-          >
-            Dark mode {isDarkMode ? "on" : "off"}
-          </button>
+          <div className="space-y-4">
+            <button
+              aria-pressed={isDarkMode}
+              className="mx-auto block text-lg leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400"
+              onClick={toggleDarkMode}
+              type="button"
+            >
+              Dark mode {isDarkMode ? "on" : "off"}
+            </button>
+
+            <button
+              aria-pressed={animationsEnabled}
+              className="mx-auto block text-lg leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400"
+              onClick={toggleAnimations}
+              type="button"
+            >
+              Animations {animationsEnabled ? "on" : "off"}
+            </button>
+          </div>
         </fieldset>
       </div>
     </div>

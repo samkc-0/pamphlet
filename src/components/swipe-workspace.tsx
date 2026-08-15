@@ -37,6 +37,7 @@ export type WorkspaceRow = {
 };
 
 type SwipeWorkspaceProps = {
+  animations?: boolean;
   initialRowId?: string;
   keyboard?: boolean;
   onStateChange?: (state: {
@@ -53,6 +54,7 @@ type SwipeWorkspaceProps = {
 };
 
 export function SwipeWorkspace({
+  animations = true,
   initialRowId,
   keyboard = true,
   onStateChange,
@@ -138,6 +140,11 @@ export function SwipeWorkspace({
     (to: ReactNode, direction: Direction, commit: () => void) => {
       if (transition || !activePage) return;
 
+      if (!animations) {
+        commit();
+        return;
+      }
+
       setTransition({
         direction,
         from: activePage.render(),
@@ -151,7 +158,7 @@ export function SwipeWorkspace({
         transitionTimer.current = null;
       }, TRANSITION_MS);
     },
-    [activePage, transition]
+    [activePage, animations, transition]
   );
 
   const navigate = useCallback(
