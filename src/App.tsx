@@ -109,19 +109,20 @@ const LANGUAGE_CHOICES = [
 ];
 
 function App() {
-  const [initialPersistedState] = useState(readPersistedAppState);
+  const [isStateLoaded, setIsStateLoaded] = useState(false);
+  const [defaultPersistedState] = useState(getDefaultPersistedAppState);
   const [animationsEnabled, setAnimationsEnabled] = useState(
-    () => initialPersistedState.animationsEnabled
+    () => defaultPersistedState.animationsEnabled
   );
   const [isDarkMode, setIsDarkMode] = useState(
-    () => initialPersistedState.isDarkMode
+    () => defaultPersistedState.isDarkMode
   );
   const [bookMetadataEdits, setBookMetadataEdits] = useState<
     Record<string, BookMetadataEdit>
-  >(() => initialPersistedState.bookMetadataEdits);
+  >(() => defaultPersistedState.bookMetadataEdits);
   const [editingBookId, setEditingBookId] = useState<string | null>(null);
   const [openBookIds, setOpenBookIds] = useState<string[]>(
-    () => initialPersistedState.openBookIds
+    () => defaultPersistedState.openBookIds
   );
   const [loadedBooks, setLoadedBooks] = useState<Record<string, LoadedBook>>(
     {}
@@ -131,18 +132,33 @@ function App() {
   >({});
   const [activePageByRowId, setActivePageByRowId] = useState<
     Record<string, string>
-  >(() => initialPersistedState.activePageByRowId);
+  >(() => defaultPersistedState.activePageByRowId);
   const [savedPageByBookId, setSavedPageByBookId] = useState<
     Record<string, string>
-  >(() => initialPersistedState.savedPageByBookId);
+  >(() => defaultPersistedState.savedPageByBookId);
   const [activeRowId, setActiveRowId] = useState(
-    () => initialPersistedState.activeRowId
+    () => defaultPersistedState.activeRowId
   );
   const [pageJump, setPageJump] = useState<PageJump | null>(null);
   const pageJumpSerial = useRef(0);
   const [viewportKey, setViewportKey] = useState(() => getViewportKey());
 
   useEffect(() => {
+    const persistedState = readPersistedAppState();
+
+    setActivePageByRowId(persistedState.activePageByRowId);
+    setActiveRowId(persistedState.activeRowId);
+    setAnimationsEnabled(persistedState.animationsEnabled);
+    setBookMetadataEdits(persistedState.bookMetadataEdits);
+    setIsDarkMode(persistedState.isDarkMode);
+    setOpenBookIds(persistedState.openBookIds);
+    setSavedPageByBookId(persistedState.savedPageByBookId);
+    setIsStateLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isStateLoaded) return;
+
     for (const book of BOOKS) {
       if (!openBookIds.includes(book.id) || loadedBooks[book.id]) continue;
 
@@ -168,7 +184,7 @@ function App() {
           }));
         });
     }
-  }, [loadedBooks, openBookIds]);
+  }, [isStateLoaded, loadedBooks, openBookIds]);
 
   useEffect(() => {
     const onResize = () => setViewportKey(getViewportKey());
@@ -182,6 +198,8 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!isStateLoaded) return;
+
     writePersistedAppState({
       activePageByRowId,
       activeRowId,
@@ -197,12 +215,15 @@ function App() {
     activeRowId,
     animationsEnabled,
     bookMetadataEdits,
+    isStateLoaded,
     isDarkMode,
     openBookIds,
     savedPageByBookId
   ]);
 
   useEffect(() => {
+    if (!isStateLoaded) return;
+
     let cancelled = false;
 
     async function paginateOpenBooks() {
@@ -229,7 +250,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [loadedBooks, openBookIds, paginatedBooks, viewportKey]);
+  }, [isStateLoaded, loadedBooks, openBookIds, paginatedBooks, viewportKey]);
 
   const toggleBook = useCallback((bookId: string) => {
     window.setTimeout(() => {
@@ -322,6 +343,14 @@ function App() {
       toggleBook
     ]
   );
+
+  if (!isStateLoaded) {
+    return (
+      <div className={isDarkMode ? "dark" : ""}>
+        <SyncingScreen />
+      </div>
+    );
+  }
 
   return (
     <div className={isDarkMode ? "dark" : ""}>
@@ -547,6 +576,19 @@ function SettingsScreen({
         </fieldset>
       </div>
     </div>
+  );
+}
+
+function SyncingScreen() {
+  return (
+    <main
+      aria-busy="true"
+      className="flex h-dvh w-screen items-center justify-center bg-white px-6 text-center text-neutral-950 dark:bg-neutral-950 dark:text-neutral-100"
+    >
+      <p className="text-sm uppercase tracking-[0.18em] text-neutral-500 dark:text-neutral-400">
+        Syncing
+      </p>
+    </main>
   );
 }
 
