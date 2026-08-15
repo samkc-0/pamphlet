@@ -1086,14 +1086,6 @@ function ReaderScreen({
         </div>
         <label className="flex shrink-0 items-baseline gap-1 text-neutral-500">
           <span className="sr-only">Page</span>
-          <span
-            aria-label={isSyncingState ? "Syncing progress" : undefined}
-            className={`mb-0.5 h-1.5 w-1.5 rounded-full bg-neutral-950 transition-opacity duration-500 dark:bg-neutral-100 ${
-              isSyncingState
-                ? "animate-pulse opacity-40"
-                : "pointer-events-none opacity-0"
-            }`}
-          />
           <input
             aria-label={`Page, 1 through ${pageTotal}`}
             className="w-12 appearance-none bg-transparent text-right text-neutral-950 outline-none [font-variant-numeric:tabular-nums] focus-visible:underline dark:text-neutral-100"
@@ -1112,6 +1104,14 @@ function ReaderScreen({
           />
           <span>/ {pageTotal}</span>
         </label>
+        <span
+          aria-label={isSyncingState ? "Syncing progress" : undefined}
+          className={`fixed right-3 top-3 z-30 h-1.5 w-1.5 rounded-full bg-neutral-950 transition-opacity duration-500 dark:bg-neutral-100 sm:right-5 sm:top-5 ${
+            isSyncingState
+              ? "animate-pulse opacity-40"
+              : "pointer-events-none opacity-0"
+          }`}
+        />
       </header>
 
       <div className="mx-auto flex min-h-0 w-full max-w-3xl min-w-0 flex-col justify-start overflow-hidden py-5 sm:py-8">
