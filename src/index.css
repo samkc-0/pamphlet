@@ -41,6 +41,8 @@
 
 @layer utilities {
   .reader-page-content {
+    max-width: 100%;
+    min-width: 0;
     width: 100%;
   }
 
@@ -58,6 +60,8 @@
     gap: 1rem;
     font-size: clamp(1.08rem, 2.05vw, 1.45rem);
     line-height: 1.62;
+    max-width: 100%;
+    min-width: 0;
     text-align: justify;
     color: rgb(10 10 10);
   }
@@ -65,8 +69,11 @@
   .reader-page-body p {
     hyphens: auto;
     margin: 0;
-    overflow-wrap: break-word;
-    word-break: normal;
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    white-space: normal;
+    word-break: break-word;
   }
 
   .reader-measurer {
