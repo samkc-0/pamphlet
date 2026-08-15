@@ -4,9 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "predev": "node --no-warnings scripts/generate-books.mjs",
     "dev": "vite --host 0.0.0.0",
-    "prebuild": "node --no-warnings scripts/generate-books.mjs",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0"
   },
@@ -19,7 +17,6 @@
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "sql.js": "^1.14.2",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "vite": "6.0.0"
@@ -28,7 +25,6 @@
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@types/sql.js": "^1.4.11",
     "autoprefixer": "^10.4.20",
     "esbuild": "0.24.2",
     "postcss": "^8.4.49",

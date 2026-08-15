@@ -11,7 +11,7 @@ export type CachedPagination = {
   cacheKey: string;
   createdAt: number;
   pages: ReaderPage[];
-  sourceUrl: string;
+  sourceFingerprint: string;
   viewportKey: string;
 };
 
@@ -56,7 +56,7 @@ export async function writeCachedPagination(
       cacheKey,
       createdAt: Date.now(),
       pages,
-      sourceUrl: book.url,
+      sourceFingerprint: book.fingerprint,
       viewportKey
     };
 
@@ -99,7 +99,7 @@ function getPaginationCacheKey(book: BookSource, viewportKey: string) {
   return [
     PAGINATION_CACHE_VERSION,
     book.id,
-    encodeURIComponent(book.url),
+    book.fingerprint,
     viewportKey
   ].join(":");
 }
@@ -113,7 +113,7 @@ function isCachedPagination(value: unknown): value is CachedPagination {
     typeof candidate.bookId === "string" &&
     typeof candidate.cacheKey === "string" &&
     Array.isArray(candidate.pages) &&
-    typeof candidate.sourceUrl === "string" &&
+    typeof candidate.sourceFingerprint === "string" &&
     typeof candidate.viewportKey === "string"
   );
 }

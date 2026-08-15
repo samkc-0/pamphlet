@@ -1,60 +1,94 @@
-import initSqlJs from "sql.js";
+import type { BookSource } from "@/books";
 
-import {
-  BOOKS_DATABASE_URL,
-  SQL_WASM_URL,
-  type BookSource
-} from "@/books";
+const LIBRARY_DATABASE_NAME = "pamphlet-library";
+const LIBRARY_DATABASE_VERSION = 1;
+const BOOKS_STORE_NAME = "books";
 
-let catalogPromise: Promise<BookSource[]> | null = null;
+type StoredBookRecord = BookSource & {
+  data: ArrayBuffer;
+};
 
-export function loadBookCatalog() {
-  catalogPromise ??= readBookCatalog();
-  return catalogPromise;
+export type UploadedBook = {
+  book: BookSource;
+  data: ArrayBuffer;
+};
+
+export async function loadBookCatalog() {
+  const database = await openLibraryDatabase();
+
+  return new Promise<BookSource[]>((resolve, reject) => {
+    const transaction = database.transaction(BOOKS_STORE_NAME, "readonly");
+    const store = transaction.objectStore(BOOKS_STORE_NAME);
+    const request = store.getAll();
+
+    request.onsuccess = () => {
+      const records = request.result as StoredBookRecord[];
+      resolve(
+        records
+          .map(({ data: _data, ...book }) => book)
+          .sort((left, right) => left.createdAt - right.createdAt)
+      );
+    };
+    request.onerror = () => reject(request.error);
+  }).finally(() => database.close());
 }
 
-async function readBookCatalog(): Promise<BookSource[]> {
-  const [SQL, response] = await Promise.all([
-    initSqlJs({
-      locateFile: () => SQL_WASM_URL
-    }),
-    fetch(BOOKS_DATABASE_URL)
-  ]);
+export async function readBookData(book: BookSource) {
+  const database = await openLibraryDatabase();
 
-  if (!response.ok) {
-    throw new Error(`Failed to load book catalog: ${response.status}`);
-  }
+  return new Promise<ArrayBuffer>((resolve, reject) => {
+    const transaction = database.transaction(BOOKS_STORE_NAME, "readonly");
+    const store = transaction.objectStore(BOOKS_STORE_NAME);
+    const request = store.get(book.id);
 
-  const database = new SQL.Database(new Uint8Array(await response.arrayBuffer()));
+    request.onsuccess = () => {
+      const record = request.result as StoredBookRecord | undefined;
 
-  try {
-    const [result] = database.exec(`
-      SELECT id, title, author, url
-      FROM books
-      ORDER BY sort_index ASC
-    `);
+      if (!record) {
+        reject(new Error("Book is missing from the local library."));
+        return;
+      }
 
-    if (!result) {
-      return [];
-    }
-
-    return result.values.map((row) => ({
-      id: readTextColumn(row, 0),
-      title: readTextColumn(row, 1),
-      author: readTextColumn(row, 2),
-      url: readTextColumn(row, 3)
-    }));
-  } finally {
-    database.close();
-  }
+      resolve(record.data.slice(0));
+    };
+    request.onerror = () => reject(request.error);
+  }).finally(() => database.close());
 }
 
-function readTextColumn(row: unknown[], index: number) {
-  const value = row[index];
+export async function saveUploadedBook(uploadedBook: UploadedBook) {
+  const database = await openLibraryDatabase();
 
-  if (typeof value !== "string") {
-    throw new Error("Book catalog contains an invalid row.");
-  }
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(BOOKS_STORE_NAME, "readwrite");
+    const store = transaction.objectStore(BOOKS_STORE_NAME);
+    const request = store.put({
+      ...uploadedBook.book,
+      data: uploadedBook.data
+    } satisfies StoredBookRecord);
 
-  return value;
+    request.onsuccess = () => resolve();
+    request.onerror = () => reject(request.error);
+  }).finally(() => database.close());
+}
+
+function openLibraryDatabase() {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const request = indexedDB.open(
+      LIBRARY_DATABASE_NAME,
+      LIBRARY_DATABASE_VERSION
+    );
+
+    request.onupgradeneeded = () => {
+      const database = request.result;
+
+      if (!database.objectStoreNames.contains(BOOKS_STORE_NAME)) {
+        database.createObjectStore(BOOKS_STORE_NAME, {
+          keyPath: "id"
+        });
+      }
+    };
+
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
 }

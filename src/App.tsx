@@ -11,8 +11,12 @@ import {
   readStoredAppState,
   writeStoredAppState
 } from "@/lib/app-state-store";
-import { loadBookCatalog } from "@/lib/books-db";
-import { loadEpub, type EpubBook } from "@/lib/epub";
+import {
+  loadBookCatalog,
+  readBookData,
+  saveUploadedBook
+} from "@/lib/books-db";
+import { loadEpubFromArrayBuffer, type EpubBook } from "@/lib/epub";
 import {
   readCachedPagination,
   writeCachedPagination
@@ -120,6 +124,8 @@ function App() {
   const [books, setBooks] = useState<BookSource[]>([]);
   const [booksError, setBooksError] = useState<string | null>(null);
   const [isBookCatalogLoaded, setIsBookCatalogLoaded] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [isUploadingBooks, setIsUploadingBooks] = useState(false);
   const [isStateLoaded, setIsStateLoaded] = useState(false);
   const [isSyncingState, setIsSyncingState] = useState(false);
   const [defaultPersistedState] = useState(getDefaultPersistedAppState);
@@ -180,7 +186,7 @@ function App() {
   useEffect(() => {
     let cancelled = false;
 
-    loadBookCatalog()
+    refreshBookCatalog()
       .then((books) => {
         if (cancelled) return;
 
@@ -231,7 +237,8 @@ function App() {
         [book.id]: { loading: true }
       }));
 
-      loadEpub(book.url)
+      readBookData(book)
+        .then((data) => loadEpubFromArrayBuffer(data))
         .then((data) => {
           setLoadedBooks((current) => ({
             ...current,
@@ -249,6 +256,50 @@ function App() {
         });
     }
   }, [books, isStateLoaded, loadedBooks, openBookIds]);
+
+  const uploadBooks = useCallback(async (files: File[]) => {
+    if (files.length === 0) return;
+
+    setIsUploadingBooks(true);
+    setUploadError(null);
+
+    try {
+      for (const file of files) {
+        const data = await file.arrayBuffer();
+        const [metadata, fingerprint] = await Promise.all([
+          loadEpubFromArrayBuffer(data.slice(0)),
+          fingerprintArrayBuffer(data)
+        ]);
+        const title = metadata.title?.trim() || file.name.replace(/\.epub$/i, "");
+        const author = metadata.author?.trim() || "Unknown";
+        const now = Date.now();
+        const id = `${slugify(title || file.name)}-${fingerprint.slice(0, 12)}`;
+
+        await saveUploadedBook({
+          book: {
+            author,
+            createdAt: now,
+            fileName: file.name,
+            fingerprint,
+            id,
+            size: file.size,
+            storageKey: id,
+            title,
+            updatedAt: now
+          },
+          data
+        });
+      }
+
+      setBooks(await refreshBookCatalog());
+    } catch (error: unknown) {
+      setUploadError(
+        error instanceof Error ? error.message : "Failed to upload book."
+      );
+    } finally {
+      setIsUploadingBooks(false);
+    }
+  }, []);
 
   useEffect(() => {
     const onResize = () => setViewportKey(getViewportKey());
@@ -433,6 +484,7 @@ function App() {
         bookMetadataEdits,
         isDarkMode,
         isSyncingState,
+        isUploadingBooks,
         loadedBooks,
         openBookIds,
         activePageByRowId,
@@ -442,7 +494,9 @@ function App() {
         savedPageByBookId,
         toggleAnimations,
         toggleDarkMode,
-        toggleBook
+        toggleBook,
+        uploadError,
+        uploadBooks
       }),
     [
       activePageByRowId,
@@ -451,6 +505,7 @@ function App() {
       bookMetadataEdits,
       isDarkMode,
       isSyncingState,
+      isUploadingBooks,
       jumpToBookPage,
       loadedBooks,
       openBookIds,
@@ -458,7 +513,9 @@ function App() {
       savedPageByBookId,
       toggleAnimations,
       toggleDarkMode,
-      toggleBook
+      toggleBook,
+      uploadError,
+      uploadBooks
     ]
   );
 
@@ -534,6 +591,7 @@ function createArticleRows({
   bookMetadataEdits,
   isDarkMode,
   isSyncingState,
+  isUploadingBooks,
   jumpToBookPage,
   loadedBooks,
   openBookIds,
@@ -542,7 +600,9 @@ function createArticleRows({
   savedPageByBookId,
   toggleAnimations,
   toggleDarkMode,
-  toggleBook
+  toggleBook,
+  uploadError,
+  uploadBooks
 }: {
   activePageByRowId: Record<string, string>;
   animationsEnabled: boolean;
@@ -550,6 +610,7 @@ function createArticleRows({
   bookMetadataEdits: Record<string, BookMetadataEdit>;
   isDarkMode: boolean;
   isSyncingState: boolean;
+  isUploadingBooks: boolean;
   jumpToBookPage: (bookId: string, pageId: string) => void;
   loadedBooks: Record<string, LoadedBook>;
   openBookIds: string[];
@@ -559,6 +620,8 @@ function createArticleRows({
   toggleAnimations: () => void;
   toggleDarkMode: () => void;
   toggleBook: (bookId: string) => void;
+  uploadError: string | null;
+  uploadBooks: (files: File[]) => Promise<void>;
 }): WorkspaceRow[] {
   return [
     {
@@ -595,6 +658,9 @@ function createArticleRows({
               paginatedBooks={paginatedBooks}
               savedPageByBookId={savedPageByBookId}
               toggleBook={toggleBook}
+              uploadError={uploadError}
+              uploadBooks={uploadBooks}
+              uploading={isUploadingBooks}
             />
           )
         })
@@ -962,7 +1028,10 @@ function LibraryScreen({
   pageTotal,
   paginatedBooks,
   savedPageByBookId,
-  toggleBook
+  toggleBook,
+  uploadError,
+  uploadBooks,
+  uploading
 }: {
   activePageByRowId: Record<string, string>;
   bookMetadataEdits: Record<string, BookMetadataEdit>;
@@ -975,6 +1044,9 @@ function LibraryScreen({
   paginatedBooks: Record<string, PaginatedBook>;
   savedPageByBookId: Record<string, string>;
   toggleBook: (bookId: string) => void;
+  uploadError: string | null;
+  uploadBooks: (files: File[]) => Promise<void>;
+  uploading: boolean;
 }) {
   const contentsProgress =
     pageTotal > 1 ? ((pageNumber - 1) / (pageTotal - 1)) * 100 : 0;
@@ -1048,9 +1120,34 @@ function LibraryScreen({
               style={{ width: `${contentsProgress}%` }}
             />
           </span>
+          <label className="mt-4 block cursor-pointer text-base text-neutral-500 outline-none focus-within:text-neutral-950 dark:text-neutral-400 dark:focus-within:text-neutral-100">
+            <span>{uploading ? "Importing" : "Import book"}</span>
+            <input
+              accept=".epub,application/epub+zip"
+              className="sr-only"
+              disabled={uploading}
+              multiple
+              onChange={(event) => {
+                const files = Array.from(event.target.files ?? []);
+                event.target.value = "";
+                void uploadBooks(files);
+              }}
+              type="file"
+            />
+          </label>
+          {uploadError ? (
+            <p className="mx-auto mt-3 max-w-md text-sm text-neutral-500 dark:text-neutral-400">
+              {uploadError}
+            </p>
+          ) : null}
         </header>
 
         <ol>
+          {books.length === 0 ? (
+            <li className="py-8 text-center text-lg text-neutral-500 dark:text-neutral-400">
+              No books yet
+            </li>
+          ) : null}
           {books.map((book) => {
             const isOpen = openBookIds.includes(book.id);
             const loadedBook = loadedBooks[book.id];
@@ -1274,6 +1371,30 @@ function getDefaultPersistedAppState(): PersistedAppState {
     savedPageByBookId: {},
     version: 1
   };
+}
+
+async function refreshBookCatalog() {
+  return loadBookCatalog();
+}
+
+async function fingerprintArrayBuffer(data: ArrayBuffer) {
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function slugify(input: string) {
+  return (
+    input
+      .normalize("NFKD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/\.epub$/i, "")
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 72) || "book"
+  );
 }
 
 async function readPersistedAppState(): Promise<PersistedAppState> {

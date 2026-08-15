@@ -31,7 +31,13 @@ export async function loadEpub(url: string): Promise<EpubBook> {
     throw new Error("Expected an EPUB file, but the server returned HTML.");
   }
 
-  const zip = await JSZip.loadAsync(await response.arrayBuffer());
+  return loadEpubFromArrayBuffer(await response.arrayBuffer());
+}
+
+export async function loadEpubFromArrayBuffer(
+  data: ArrayBuffer
+): Promise<EpubBook> {
+  const zip = await JSZip.loadAsync(data);
   const containerXml = await readZipText(zip, "META-INF/container.xml");
   const rootfilePath = parseRootfilePath(containerXml);
   const opfXml = await readZipText(zip, rootfilePath);

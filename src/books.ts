@@ -1,9 +1,11 @@
 export type BookSource = {
   author: string;
+  createdAt: number;
+  fileName: string;
+  fingerprint: string;
   id: string;
+  size: number;
+  storageKey: string;
   title: string;
-  url: string;
+  updatedAt: number;
 };
-
-export const BOOKS_DATABASE_URL = "/books.sqlite";
-export const SQL_WASM_URL = "/sql-wasm.wasm";
