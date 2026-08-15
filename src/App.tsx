@@ -300,9 +300,13 @@ function LibraryScreen({
                     {loadedBook?.data?.title ?? book.title}
                     <span
                       aria-hidden="true"
-                      className="ml-2 inline-block w-8 text-left text-neutral-500"
+                      className="ml-2 inline-flex w-8 items-center justify-start text-neutral-500"
                     >
-                      {isOpen ? ROW_MARKERS[rowNumber] : "○"}
+                      {isOpen ? (
+                        ROW_MARKERS[rowNumber]
+                      ) : (
+                        <span className="inline-block h-[1em] w-[1em] rounded-full border border-current" />
+                      )}
                     </span>
                   </span>
                   <span className="mt-1 block text-base text-neutral-600">
