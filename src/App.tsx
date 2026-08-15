@@ -359,7 +359,7 @@ function ReaderScreen({
       </div>
 
       <footer className="mx-auto w-full max-w-3xl border-t border-neutral-200 pt-3 text-center text-sm text-neutral-500">
-        {ROW_MARKERS[Math.min(pageNumber, ROW_MARKERS.length - 1)] ?? pageNumber}
+        {pageNumber}
       </footer>
     </article>
   );
