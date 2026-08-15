@@ -298,11 +298,14 @@ function LibraryScreen({
                 >
                   <span className="block text-2xl leading-tight text-neutral-950">
                     {loadedBook?.data?.title ?? book.title}
-                    {isOpen ? (
-                      <span className="ml-2 text-neutral-500">
-                        {ROW_MARKERS[rowNumber]}
-                      </span>
-                    ) : null}
+                    <span
+                      aria-hidden={!isOpen}
+                      className={`ml-2 inline-block w-8 text-left text-neutral-500 ${
+                        isOpen ? "opacity-100" : "opacity-0"
+                      }`}
+                    >
+                      {isOpen ? ROW_MARKERS[rowNumber] : ROW_MARKERS[0]}
+                    </span>
                   </span>
                   <span className="mt-1 block text-base text-neutral-600">
                     {loadedBook?.data?.author ?? book.author}
