@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent, MouseEvent, PointerEvent } from "react";
 import { Settings } from "lucide-react";
 
 import { BOOKS, type BookSource } from "@/books";
@@ -80,11 +81,22 @@ type PageJump = {
   serial: number;
 };
 
+type BookMetadataEdit = {
+  author: string;
+  languageCode: string;
+  title: string;
+};
+
 const LIBRARY_BOOKS_PER_PAGE = 5;
+const LONG_PRESS_MS = 550;
 const MAX_OPEN_BOOKS = 5;
 
 function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
+  const [bookMetadataEdits, setBookMetadataEdits] = useState<
+    Record<string, BookMetadataEdit>
+  >({});
+  const [editingBookId, setEditingBookId] = useState<string | null>(null);
   const [openBookIds, setOpenBookIds] = useState<string[]>([]);
   const [loadedBooks, setLoadedBooks] = useState<Record<string, LoadedBook>>(
     {}
@@ -200,14 +212,41 @@ function App() {
     setIsDarkMode((current) => !current);
   }, []);
 
+  const saveBookMetadata = useCallback(
+    (bookId: string, metadata: BookMetadataEdit) => {
+      setBookMetadataEdits((current) => ({
+        ...current,
+        [bookId]: metadata
+      }));
+      setEditingBookId(null);
+    },
+    []
+  );
+
+  const editingBook = editingBookId
+    ? BOOKS.find((book) => book.id === editingBookId)
+    : undefined;
+  const editingLoadedBook = editingBook
+    ? loadedBooks[editingBook.id]
+    : undefined;
+  const editingMetadata = editingBook
+    ? getBookMetadata(
+        editingBook,
+        editingLoadedBook,
+        bookMetadataEdits[editingBook.id]
+      )
+    : undefined;
+
   const rows = useMemo(
     () =>
       createArticleRows({
+        bookMetadataEdits,
         isDarkMode,
         loadedBooks,
         openBookIds,
         activePageByRowId,
         jumpToBookPage,
+        openBookSettings: setEditingBookId,
         paginatedBooks,
         savedPageByBookId,
         toggleDarkMode,
@@ -215,6 +254,7 @@ function App() {
       }),
     [
       activePageByRowId,
+      bookMetadataEdits,
       isDarkMode,
       jumpToBookPage,
       loadedBooks,
@@ -253,26 +293,38 @@ function App() {
         pageJump={pageJump}
         rows={rows}
       />
+      {editingBook && editingMetadata ? (
+        <BookMetadataDialog
+          book={editingBook}
+          metadata={editingMetadata}
+          onClose={() => setEditingBookId(null)}
+          onSave={saveBookMetadata}
+        />
+      ) : null}
     </div>
   );
 }
 
 function createArticleRows({
   activePageByRowId,
+  bookMetadataEdits,
   isDarkMode,
   jumpToBookPage,
   loadedBooks,
   openBookIds,
+  openBookSettings,
   paginatedBooks,
   savedPageByBookId,
   toggleDarkMode,
   toggleBook
 }: {
   activePageByRowId: Record<string, string>;
+  bookMetadataEdits: Record<string, BookMetadataEdit>;
   isDarkMode: boolean;
   jumpToBookPage: (bookId: string, pageId: string) => void;
   loadedBooks: Record<string, LoadedBook>;
   openBookIds: string[];
+  openBookSettings: (bookId: string) => void;
   paginatedBooks: Record<string, PaginatedBook>;
   savedPageByBookId: Record<string, string>;
   toggleDarkMode: () => void;
@@ -303,7 +355,9 @@ function createArticleRows({
               pageNumber={index + 1}
               pageTotal={pages.length}
               activePageByRowId={activePageByRowId}
+              bookMetadataEdits={bookMetadataEdits}
               loadedBooks={loadedBooks}
+              openBookSettings={openBookSettings}
               openBookIds={openBookIds}
               paginatedBooks={paginatedBooks}
               savedPageByBookId={savedPageByBookId}
@@ -318,6 +372,7 @@ function createArticleRows({
       .map((book) =>
         createBookRow(
           book,
+          bookMetadataEdits[book.id],
           loadedBooks[book.id],
           paginatedBooks[book.id]?.pages,
           savedPageByBookId[book.id],
@@ -329,15 +384,15 @@ function createArticleRows({
 
 function createBookRow(
   book: BookSource,
+  metadataEdit?: BookMetadataEdit,
   loadedBook?: LoadedBook,
   pages?: ReaderPage[],
   savedPageId?: string,
   jumpToBookPage?: (bookId: string, pageId: string) => void
 ): WorkspaceRow {
-  if (pages?.length) {
-    const title = loadedBook?.data?.title ?? book.title;
-    const author = loadedBook?.data?.author ?? book.author;
+  const metadata = getBookMetadata(book, loadedBook, metadataEdit);
 
+  if (pages?.length) {
     return {
       id: book.id,
       initialPageId: savedPageId,
@@ -345,7 +400,8 @@ function createBookRow(
         id: page.id,
         render: () => (
           <ReaderScreen
-            author={author}
+            author={metadata.author}
+            languageCode={metadata.languageCode}
             pageNumber={index + 1}
             pageTotal={pages.length}
             chapterTitle={page.chapterTitle}
@@ -357,7 +413,7 @@ function createBookRow(
               }
             }}
             paragraphs={page.paragraphs}
-            title={title}
+            title={metadata.title}
           />
         )
       }))
@@ -371,10 +427,11 @@ function createBookRow(
         id: "status",
         render: () => (
           <BookStatusScreen
-            book={book}
             error={loadedBook?.error}
+            languageCode={metadata.languageCode}
             loading={!loadedBook?.data && (loadedBook?.loading ?? true)}
             paginating={Boolean(loadedBook?.data)}
+            title={metadata.title}
           />
         )
       }
@@ -412,10 +469,142 @@ function SettingsScreen({
   );
 }
 
+function BookMetadataDialog({
+  book,
+  metadata,
+  onClose,
+  onSave
+}: {
+  book: BookSource;
+  metadata: BookMetadataEdit;
+  onClose: () => void;
+  onSave: (bookId: string, metadata: BookMetadataEdit) => void;
+}) {
+  const [author, setAuthor] = useState(metadata.author);
+  const [languageCode, setLanguageCode] = useState(metadata.languageCode);
+  const [title, setTitle] = useState(metadata.title);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    onSave(book.id, {
+      author: author.trim(),
+      languageCode: normalizeLanguageCode(languageCode),
+      title: title.trim()
+    });
+  };
+
+  return (
+    <div
+      aria-labelledby="book-metadata-title"
+      aria-modal="true"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-white/75 px-5 text-neutral-950 backdrop-blur-sm dark:bg-neutral-950/75 dark:text-neutral-100"
+      onClick={onClose}
+      role="dialog"
+    >
+      <form
+        className="w-full max-w-md border border-neutral-300 bg-white px-6 py-6 shadow-sm dark:border-neutral-700 dark:bg-neutral-950"
+        onClick={(event) => event.stopPropagation()}
+        onSubmit={handleSubmit}
+      >
+        <h2
+          className="text-center text-sm uppercase tracking-[0.18em] text-neutral-500 dark:text-neutral-400"
+          id="book-metadata-title"
+        >
+          Book
+        </h2>
+
+        <div className="mt-6 space-y-5 text-left">
+          <label className="block">
+            <span className="block text-sm text-neutral-500 dark:text-neutral-400">
+              Title
+            </span>
+            <input
+              className="mt-1 w-full border-b border-neutral-300 bg-transparent py-1 text-lg outline-none focus:border-neutral-950 dark:border-neutral-700 dark:focus:border-neutral-100"
+              onChange={(event) => setTitle(event.target.value)}
+              required
+              type="text"
+              value={title}
+            />
+          </label>
+
+          <label className="block">
+            <span className="block text-sm text-neutral-500 dark:text-neutral-400">
+              Author
+            </span>
+            <input
+              className="mt-1 w-full border-b border-neutral-300 bg-transparent py-1 text-lg outline-none focus:border-neutral-950 dark:border-neutral-700 dark:focus:border-neutral-100"
+              onChange={(event) => setAuthor(event.target.value)}
+              required
+              type="text"
+              value={author}
+            />
+          </label>
+
+          <label className="block">
+            <span className="block text-sm text-neutral-500 dark:text-neutral-400">
+              ISO language code
+            </span>
+            <input
+              className="mt-1 w-full border-b border-neutral-300 bg-transparent py-1 text-lg lowercase outline-none focus:border-neutral-950 dark:border-neutral-700 dark:focus:border-neutral-100"
+              list="language-codes"
+              maxLength={12}
+              onChange={(event) => setLanguageCode(event.target.value)}
+              pattern="[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*"
+              required
+              type="text"
+              value={languageCode}
+            />
+            <datalist id="language-codes">
+              <option value="en" />
+              <option value="es" />
+              <option value="fr" />
+              <option value="it" />
+              <option value="de" />
+              <option value="pt" />
+              <option value="zh" />
+              <option value="ja" />
+            </datalist>
+          </label>
+        </div>
+
+        <div className="mt-7 flex justify-center gap-6">
+          <button
+            className="text-base text-neutral-500 outline-none focus-visible:text-neutral-950 dark:text-neutral-400 dark:focus-visible:text-neutral-100"
+            onClick={onClose}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            className="text-base text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400"
+            type="submit"
+          >
+            Save
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function LibraryScreen({
   activePageByRowId,
+  bookMetadataEdits,
   books,
   loadedBooks,
+  openBookSettings,
   openBookIds,
   pageNumber,
   pageTotal,
@@ -424,8 +613,10 @@ function LibraryScreen({
   toggleBook
 }: {
   activePageByRowId: Record<string, string>;
+  bookMetadataEdits: Record<string, BookMetadataEdit>;
   books: BookSource[];
   loadedBooks: Record<string, LoadedBook>;
+  openBookSettings: (bookId: string) => void;
   openBookIds: string[];
   pageNumber: number;
   pageTotal: number;
@@ -435,6 +626,54 @@ function LibraryScreen({
 }) {
   const contentsProgress =
     pageTotal > 1 ? ((pageNumber - 1) / (pageTotal - 1)) * 100 : 0;
+  const longPressTimer = useRef<number | null>(null);
+  const suppressNextToggle = useRef(false);
+
+  useEffect(() => {
+    return () => {
+      if (longPressTimer.current) {
+        window.clearTimeout(longPressTimer.current);
+      }
+    };
+  }, []);
+
+  const clearLongPress = () => {
+    if (longPressTimer.current) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const startLongPress = (
+    bookId: string,
+    event: PointerEvent<HTMLElement>
+  ) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+
+    clearLongPress();
+    suppressNextToggle.current = false;
+    longPressTimer.current = window.setTimeout(() => {
+      suppressNextToggle.current = true;
+      openBookSettings(bookId);
+      longPressTimer.current = null;
+    }, LONG_PRESS_MS);
+  };
+
+  const handleBookClick = (
+    bookId: string,
+    event: MouseEvent<HTMLButtonElement>
+  ) => {
+    clearLongPress();
+
+    if (suppressNextToggle.current) {
+      suppressNextToggle.current = false;
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    toggleBook(bookId);
+  };
 
   return (
     <div className="flex min-h-full items-center px-5 py-8 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-12">
@@ -463,6 +702,11 @@ function LibraryScreen({
           {books.map((book) => {
             const isOpen = openBookIds.includes(book.id);
             const loadedBook = loadedBooks[book.id];
+            const metadata = getBookMetadata(
+              book,
+              loadedBook,
+              bookMetadataEdits[book.id]
+            );
             const pages = paginatedBooks[book.id]?.pages ?? [];
             const activePageId =
               activePageByRowId[book.id] ?? savedPageByBookId[book.id];
@@ -484,11 +728,23 @@ function LibraryScreen({
                 <button
                   aria-pressed={isOpen}
                   className="block w-full px-2 text-center outline-none focus-visible:text-neutral-500 dark:focus-visible:text-neutral-400"
-                  onClick={() => toggleBook(book.id)}
+                  onClick={(event) => handleBookClick(book.id, event)}
                   type="button"
                 >
-                  <span className="block text-xl leading-tight min-[390px]:text-2xl">
-                    {loadedBook?.data?.title ?? book.title}
+                  <span
+                    className="block text-xl leading-tight min-[390px]:text-2xl"
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      clearLongPress();
+                      suppressNextToggle.current = true;
+                      openBookSettings(book.id);
+                    }}
+                    onPointerCancel={clearLongPress}
+                    onPointerDown={(event) => startLongPress(book.id, event)}
+                    onPointerLeave={clearLongPress}
+                    onPointerUp={clearLongPress}
+                  >
+                    {metadata.title}
                     <span
                       aria-hidden={!isOpen}
                       className={`ml-2 inline-block w-8 text-left text-neutral-500 dark:text-neutral-400 ${
@@ -499,7 +755,7 @@ function LibraryScreen({
                     </span>
                   </span>
                   <span className="mt-1 block text-sm text-neutral-600 dark:text-neutral-400 min-[390px]:text-base">
-                    {loadedBook?.data?.author ?? book.author}
+                    {metadata.author}
                   </span>
                   <span
                     aria-hidden="true"
@@ -523,6 +779,7 @@ function LibraryScreen({
 function ReaderScreen({
   author,
   chapterTitle,
+  languageCode,
   onPageChange,
   paragraphs,
   pageNumber,
@@ -531,6 +788,7 @@ function ReaderScreen({
 }: {
   author: string;
   chapterTitle?: string;
+  languageCode: string;
   onPageChange: (pageNumber: number) => void;
   pageNumber: number;
   pageTotal: number;
@@ -559,7 +817,10 @@ function ReaderScreen({
   };
 
   return (
-    <article className="grid h-full grid-rows-[auto_1fr] overflow-hidden px-5 py-5 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-7">
+    <article
+      className="grid h-full grid-rows-[auto_1fr] overflow-hidden px-5 py-5 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-7"
+      lang={languageCode}
+    >
       <header className="mx-auto flex w-full max-w-3xl min-w-0 items-baseline justify-between gap-4 border-neutral-200 pb-3 text-sm text-neutral-500 dark:text-neutral-400">
         <div className="min-w-0 overflow-hidden">
           <span className="truncate">{title}</span>
@@ -605,24 +866,29 @@ function ReaderScreen({
 }
 
 function BookStatusScreen({
-  book,
   error,
+  languageCode,
   loading,
-  paginating
+  paginating,
+  title
 }: {
-  book: BookSource;
   error?: string;
+  languageCode: string;
   loading: boolean;
   paginating: boolean;
+  title: string;
 }) {
   return (
-    <div className="flex h-full w-full items-center justify-center px-6 text-center text-neutral-950 dark:text-neutral-100">
+    <div
+      className="flex h-full w-full items-center justify-center px-6 text-center text-neutral-950 dark:text-neutral-100"
+      lang={languageCode}
+    >
       <div>
         <p className="text-sm uppercase tracking-[0.18em] text-neutral-500 dark:text-neutral-400">
           {paginating ? "Paginating" : loading ? "Loading" : "Unavailable"}
         </p>
         <h1 className="mt-3 text-4xl font-semibold">
-          {book.title}
+          {title}
         </h1>
         <p className="mt-3 text-lg text-neutral-600 dark:text-neutral-400">
           {error ?? "Preparing measured pages."}
@@ -630,6 +896,26 @@ function BookStatusScreen({
       </div>
     </div>
   );
+}
+
+function getBookMetadata(
+  book: BookSource,
+  loadedBook?: LoadedBook,
+  metadataEdit?: BookMetadataEdit
+): BookMetadataEdit {
+  return {
+    author:
+      metadataEdit?.author.trim() ||
+      loadedBook?.data?.author?.trim() ||
+      book.author,
+    languageCode: normalizeLanguageCode(metadataEdit?.languageCode ?? "und"),
+    title:
+      metadataEdit?.title.trim() || loadedBook?.data?.title?.trim() || book.title
+  };
+}
+
+function normalizeLanguageCode(languageCode: string) {
+  return languageCode.trim().toLowerCase() || "und";
 }
 
 function getViewportKey() {
