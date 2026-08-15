@@ -326,7 +326,7 @@ function Screen({
 }) {
   return (
     <section
-      className={`absolute inset-0 h-dvh w-screen select-none bg-white ${animationClass ?? ""}`}
+      className={`absolute inset-0 h-dvh w-screen select-none bg-white dark:bg-neutral-950 ${animationClass ?? ""}`}
     >
       {children}
     </section>

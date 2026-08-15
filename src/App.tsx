@@ -83,6 +83,7 @@ const LIBRARY_BOOKS_PER_PAGE = 5;
 const MAX_OPEN_BOOKS = 5;
 
 function App() {
+  const [isDarkMode, setIsDarkMode] = useState(false);
   const [openBookIds, setOpenBookIds] = useState<string[]>([]);
   const [loadedBooks, setLoadedBooks] = useState<Record<string, LoadedBook>>(
     {}
@@ -194,74 +195,103 @@ function App() {
     });
   }, []);
 
+  const toggleDarkMode = useCallback(() => {
+    setIsDarkMode((current) => !current);
+  }, []);
+
   const rows = useMemo(
     () =>
       createArticleRows({
+        isDarkMode,
         loadedBooks,
         openBookIds,
         activePageByRowId,
         jumpToBookPage,
         paginatedBooks,
         savedPageByBookId,
+        toggleDarkMode,
         toggleBook
       }),
     [
       activePageByRowId,
+      isDarkMode,
       jumpToBookPage,
       loadedBooks,
       openBookIds,
       paginatedBooks,
       savedPageByBookId,
+      toggleDarkMode,
       toggleBook
     ]
   );
 
   return (
-    <SwipeWorkspace
-      onStateChange={({ activePageByRowId }) => {
-        setActivePageByRowId((current) =>
-          shallowEqualRecords(current, activePageByRowId)
-            ? current
-            : activePageByRowId
-        );
-        setSavedPageByBookId((current) => {
-          const next = { ...current };
+    <div className={isDarkMode ? "dark" : ""}>
+      <SwipeWorkspace
+        initialRowId="library"
+        onStateChange={({ activePageByRowId }) => {
+          setActivePageByRowId((current) =>
+            shallowEqualRecords(current, activePageByRowId)
+              ? current
+              : activePageByRowId
+          );
+          setSavedPageByBookId((current) => {
+            const next = { ...current };
 
-          for (const book of BOOKS) {
-            const pageId = activePageByRowId[book.id];
+            for (const book of BOOKS) {
+              const pageId = activePageByRowId[book.id];
 
-            if (pageId && pageId !== "status") {
-              next[book.id] = pageId;
+              if (pageId && pageId !== "status") {
+                next[book.id] = pageId;
+              }
             }
-          }
 
-          return shallowEqualRecords(current, next) ? current : next;
-        });
-      }}
-      pageJump={pageJump}
-      rows={rows}
-    />
+            return shallowEqualRecords(current, next) ? current : next;
+          });
+        }}
+        pageJump={pageJump}
+        rows={rows}
+      />
+    </div>
   );
 }
 
 function createArticleRows({
   activePageByRowId,
+  isDarkMode,
   jumpToBookPage,
   loadedBooks,
   openBookIds,
   paginatedBooks,
   savedPageByBookId,
+  toggleDarkMode,
   toggleBook
 }: {
   activePageByRowId: Record<string, string>;
+  isDarkMode: boolean;
   jumpToBookPage: (bookId: string, pageId: string) => void;
   loadedBooks: Record<string, LoadedBook>;
   openBookIds: string[];
   paginatedBooks: Record<string, PaginatedBook>;
   savedPageByBookId: Record<string, string>;
+  toggleDarkMode: () => void;
   toggleBook: (bookId: string) => void;
 }): WorkspaceRow[] {
   return [
+    {
+      id: "settings",
+      pages: [
+        {
+          id: "main",
+          render: () => (
+            <SettingsScreen
+              isDarkMode={isDarkMode}
+              toggleDarkMode={toggleDarkMode}
+            />
+          )
+        }
+      ]
+    },
     {
       id: "library",
       pages: chunkBooks(BOOKS, LIBRARY_BOOKS_PER_PAGE).map((books, index, pages) => ({
@@ -351,6 +381,35 @@ function createBookRow(
   };
 }
 
+function SettingsScreen({
+  isDarkMode,
+  toggleDarkMode
+}: {
+  isDarkMode: boolean;
+  toggleDarkMode: () => void;
+}) {
+  return (
+    <div className="flex min-h-full items-center px-5 py-8 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-12">
+      <div className="mx-auto w-full max-w-3xl text-center">
+        <header className="mb-8">
+          <h1 className="mt-4 font-['Cormorant_Unicase'] text-4xl font-bold leading-tight sm:text-6xl">
+            Settings
+          </h1>
+        </header>
+
+        <button
+          aria-pressed={isDarkMode}
+          className="mx-auto block text-xl leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400 min-[390px]:text-2xl"
+          onClick={toggleDarkMode}
+          type="button"
+        >
+          Dark mode {isDarkMode ? "on" : "off"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function LibraryScreen({
   activePageByRowId,
   books,
@@ -376,15 +435,15 @@ function LibraryScreen({
     pageTotal > 1 ? ((pageNumber - 1) / (pageTotal - 1)) * 100 : 0;
 
   return (
-    <div className="flex min-h-full items-center px-5 py-8 sm:px-10 sm:py-12">
+    <div className="flex min-h-full items-center px-5 py-8 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-12">
       <div className="mx-auto w-full max-w-3xl">
         <header className="mb-4 border-neutral-300 pb-2 text-center sm:mb-6 sm:pb-4">
-          <h1 className="mt-4 font-['Cormorant_Unicase'] text-4xl font-bold leading-tight text-neutral-950 sm:text-6xl">
+          <h1 className="mt-4 font-['Cormorant_Unicase'] text-4xl font-bold leading-tight sm:text-6xl">
             Contents
           </h1>
           <span
             aria-label={`Contents page ${pageNumber} of ${pageTotal}`}
-            className="mx-auto mt-4 block h-0.5 w-full max-w-md overflow-hidden rounded-full bg-neutral-200"
+            className="mx-auto mt-4 block h-0.5 w-full max-w-md overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800"
             role="meter"
             aria-valuemax={pageTotal}
             aria-valuemin={1}
@@ -392,7 +451,7 @@ function LibraryScreen({
           >
             <span
               aria-hidden="true"
-              className="block h-full rounded-full bg-neutral-950"
+              className="block h-full rounded-full bg-neutral-950 dark:bg-neutral-100"
               style={{ width: `${contentsProgress}%` }}
             />
           </span>
@@ -422,30 +481,30 @@ function LibraryScreen({
               <li className="py-3 sm:py-4" key={book.id}>
                 <button
                   aria-pressed={isOpen}
-                  className="block w-full px-2 text-center outline-none focus-visible:text-neutral-500"
+                  className="block w-full px-2 text-center outline-none focus-visible:text-neutral-500 dark:focus-visible:text-neutral-400"
                   onClick={() => toggleBook(book.id)}
                   type="button"
                 >
-                  <span className="block text-xl leading-tight text-neutral-950 min-[390px]:text-2xl">
+                  <span className="block text-xl leading-tight min-[390px]:text-2xl">
                     {loadedBook?.data?.title ?? book.title}
                     <span
                       aria-hidden={!isOpen}
-                      className={`ml-2 inline-block w-8 text-left text-neutral-500 ${
+                      className={`ml-2 inline-block w-8 text-left text-neutral-500 dark:text-neutral-400 ${
                         isOpen ? "opacity-100" : "opacity-0"
                       }`}
                     >
                       {isOpen ? ROW_MARKERS[rowNumber] : ROW_MARKERS[0]}
                     </span>
                   </span>
-                  <span className="mt-1 block text-sm text-neutral-600 min-[390px]:text-base">
+                  <span className="mt-1 block text-sm text-neutral-600 dark:text-neutral-400 min-[390px]:text-base">
                     {loadedBook?.data?.author ?? book.author}
                   </span>
                   <span
                     aria-hidden="true"
-                    className="mx-auto mt-3 block h-0.5 w-full max-w-md overflow-hidden rounded-full bg-neutral-200"
+                    className="mx-auto mt-3 block h-0.5 w-full max-w-md overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-800"
                   >
                     <span
-                      className="block h-full rounded-full bg-neutral-950"
+                      className="block h-full rounded-full bg-neutral-950 dark:bg-neutral-100"
                       style={{ width: `${progress}%` }}
                     />
                   </span>
@@ -498,18 +557,18 @@ function ReaderScreen({
   };
 
   return (
-    <article className="grid h-full grid-rows-[auto_1fr] overflow-hidden bg-white px-5 py-5 sm:px-10 sm:py-7">
-      <header className="mx-auto flex w-full max-w-3xl min-w-0 items-baseline justify-between gap-4 border-neutral-200 pb-3 text-sm text-neutral-500">
+    <article className="grid h-full grid-rows-[auto_1fr] overflow-hidden px-5 py-5 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-7">
+      <header className="mx-auto flex w-full max-w-3xl min-w-0 items-baseline justify-between gap-4 border-neutral-200 pb-3 text-sm text-neutral-500 dark:text-neutral-400">
         <div className="min-w-0 overflow-hidden">
-          <span className="truncate text-neutral-500">{title}</span>
-          <span className="mx-2 text-neutral-500">⋅</span>
-          <span className="truncate text-neutral-500">{author}</span>
+          <span className="truncate">{title}</span>
+          <span className="mx-2">⋅</span>
+          <span className="truncate">{author}</span>
         </div>
         <label className="flex shrink-0 items-baseline gap-1 text-neutral-500">
           <span className="sr-only">Page</span>
           <input
             aria-label={`Page, 1 through ${pageTotal}`}
-            className="w-12 appearance-none bg-transparent text-right text-neutral-950 outline-none [font-variant-numeric:tabular-nums] focus-visible:underline"
+            className="w-12 appearance-none bg-transparent text-right text-neutral-950 outline-none [font-variant-numeric:tabular-nums] focus-visible:underline dark:text-neutral-100"
             inputMode="numeric"
             max={pageTotal}
             min={1}
@@ -555,15 +614,15 @@ function BookStatusScreen({
   paginating: boolean;
 }) {
   return (
-    <div className="flex h-full w-full items-center justify-center px-6 text-center">
+    <div className="flex h-full w-full items-center justify-center px-6 text-center text-neutral-950 dark:text-neutral-100">
       <div>
-        <p className="text-sm uppercase tracking-[0.18em] text-neutral-500">
+        <p className="text-sm uppercase tracking-[0.18em] text-neutral-500 dark:text-neutral-400">
           {paginating ? "Paginating" : loading ? "Loading" : "Unavailable"}
         </p>
-        <h1 className="mt-3 text-4xl font-semibold text-neutral-950">
+        <h1 className="mt-3 text-4xl font-semibold">
           {book.title}
         </h1>
-        <p className="mt-3 text-lg text-neutral-600">
+        <p className="mt-3 text-lg text-neutral-600 dark:text-neutral-400">
           {error ?? "Preparing measured pages."}
         </p>
       </div>

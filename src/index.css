@@ -58,7 +58,7 @@
     overflow-wrap: anywhere;
     white-space: normal;
     word-break: break-word;
-    color: rgb(10 10 10);
+    color: inherit;
   }
 
   .reader-page-body {
@@ -70,7 +70,7 @@
     max-width: 100%;
     min-width: 0;
     text-align: justify;
-    color: rgb(10 10 10);
+    color: inherit;
   }
 
   .reader-page-body p {
