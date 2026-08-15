@@ -392,7 +392,7 @@ function SettingsScreen({
     <div className="flex min-h-full items-center px-5 py-8 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-12">
       <div className="mx-auto w-full max-w-3xl text-center">
         <header className="mb-8">
-          <h1 className="mt-4 font-['Cormorant_Unicase'] text-4xl font-bold leading-tight sm:text-6xl">
+          <h1 className="mt-4 text-4xl font-semibold leading-tight sm:text-6xl">
             Settings
           </h1>
         </header>
