@@ -6,6 +6,7 @@ import {
   type WorkspaceRow
 } from "@/components/swipe-workspace";
 import { loadEpub, type EpubBook } from "@/lib/epub";
+import { paginateBookByLayout, type ReaderPage } from "@/lib/pagination";
 
 const ROW_MARKERS = [
   "⓪",
@@ -74,6 +75,10 @@ function App() {
   const [loadedBooks, setLoadedBooks] = useState<Record<string, LoadedBook>>(
     {}
   );
+  const [paginatedBooks, setPaginatedBooks] = useState<
+    Record<string, ReaderPage[]>
+  >({});
+  const [viewportKey, setViewportKey] = useState(() => getViewportKey());
 
   useEffect(() => {
     for (const book of BOOKS) {
@@ -103,11 +108,50 @@ function App() {
     }
   }, [loadedBooks, openBookIds]);
 
+  useEffect(() => {
+    const onResize = () => setViewportKey(getViewportKey());
+
+    window.addEventListener("resize", onResize);
+    window.addEventListener("orientationchange", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("orientationchange", onResize);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function paginateOpenBooks() {
+      for (const book of BOOKS) {
+        const loadedBook = loadedBooks[book.id];
+
+        if (!openBookIds.includes(book.id) || !loadedBook?.data) continue;
+
+        const pages = await paginateBookByLayout(loadedBook.data);
+
+        if (!cancelled) {
+          setPaginatedBooks((current) => ({
+            ...current,
+            [book.id]: pages
+          }));
+        }
+      }
+    }
+
+    paginateOpenBooks();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadedBooks, openBookIds, viewportKey]);
+
   const rows = useMemo(
     () =>
       createArticleRows({
         loadedBooks,
         openBookIds,
+        paginatedBooks,
         toggleBook: (bookId) => {
           setOpenBookIds((current) =>
             current.includes(bookId)
@@ -116,7 +160,7 @@ function App() {
           );
         }
       }),
-    [loadedBooks, openBookIds]
+    [loadedBooks, openBookIds, paginatedBooks]
   );
 
   return <SwipeWorkspace rows={rows} />;
@@ -125,10 +169,12 @@ function App() {
 function createArticleRows({
   loadedBooks,
   openBookIds,
+  paginatedBooks,
   toggleBook
 }: {
   loadedBooks: Record<string, LoadedBook>;
   openBookIds: string[];
+  paginatedBooks: Record<string, ReaderPage[]>;
   toggleBook: (bookId: string) => void;
 }): WorkspaceRow[] {
   return [
@@ -142,6 +188,7 @@ function createArticleRows({
               books={BOOKS}
               loadedBooks={loadedBooks}
               openBookIds={openBookIds}
+              paginatedBooks={paginatedBooks}
               toggleBook={toggleBook}
             />
           )
@@ -149,25 +196,32 @@ function createArticleRows({
       ]
     },
     ...BOOKS.filter((book) => openBookIds.includes(book.id)).map((book) =>
-      createBookRow(book, loadedBooks[book.id])
+      createBookRow(book, loadedBooks[book.id], paginatedBooks[book.id])
     )
   ];
 }
 
-function createBookRow(book: BookSource, loadedBook?: LoadedBook): WorkspaceRow {
-  if (loadedBook?.data?.sections.length) {
+function createBookRow(
+  book: BookSource,
+  loadedBook?: LoadedBook,
+  pages?: ReaderPage[]
+): WorkspaceRow {
+  if (pages?.length) {
+    const title = loadedBook?.data?.title ?? book.title;
+    const author = loadedBook?.data?.author ?? book.author;
+
     return {
       id: book.id,
-      pages: loadedBook.data.sections.map((section, index) => ({
-        id: section.id,
+      pages: pages.map((page, index) => ({
+        id: page.id,
         render: () => (
           <ReaderScreen
-            author={loadedBook.data?.author ?? book.author}
+            author={author}
             pageNumber={index + 1}
-            pageTotal={loadedBook.data?.sections.length ?? 1}
-            chapterTitle={section.chapterTitle}
-            paragraphs={section.paragraphs}
-            title={loadedBook.data?.title ?? book.title}
+            pageTotal={pages.length}
+            chapterTitle={page.chapterTitle}
+            paragraphs={page.paragraphs}
+            title={title}
           />
         )
       }))
@@ -183,7 +237,8 @@ function createBookRow(book: BookSource, loadedBook?: LoadedBook): WorkspaceRow 
           <BookStatusScreen
             book={book}
             error={loadedBook?.error}
-            loading={loadedBook?.loading ?? true}
+            loading={!loadedBook?.data && (loadedBook?.loading ?? true)}
+            paginating={Boolean(loadedBook?.data)}
           />
         )
       }
@@ -195,11 +250,13 @@ function LibraryScreen({
   books,
   loadedBooks,
   openBookIds,
+  paginatedBooks,
   toggleBook
 }: {
   books: BookSource[];
   loadedBooks: Record<string, LoadedBook>;
   openBookIds: string[];
+  paginatedBooks: Record<string, ReaderPage[]>;
   toggleBook: (bookId: string) => void;
 }) {
   return (
@@ -218,7 +275,7 @@ function LibraryScreen({
           {books.map((book) => {
             const isOpen = openBookIds.includes(book.id);
             const loadedBook = loadedBooks[book.id];
-            const pageCount = loadedBook?.data?.sections.length;
+            const pageCount = paginatedBooks[book.id]?.length;
             const rowNumber =
               books
                 .filter((candidate) => openBookIds.includes(candidate.id))
@@ -292,15 +349,15 @@ function ReaderScreen({
       </header>
 
       <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-col justify-center overflow-hidden py-5 sm:py-8">
-        {chapterTitle ? (
-          <div className="mb-5 text-lg font-semibold leading-tight text-neutral-950 sm:text-2xl">
-            {chapterTitle}
+        <div className="reader-page-content">
+          {chapterTitle ? (
+            <div className="reader-chapter-heading">{chapterTitle}</div>
+          ) : null}
+          <div className="reader-page-body">
+            {paragraphs.map((paragraph, index) => (
+              <p key={`${pageNumber}-${index}`}>{paragraph}</p>
+            ))}
           </div>
-        ) : null}
-        <div className="space-y-4 text-[clamp(1.08rem,2.05vw,1.45rem)] leading-[1.62] text-neutral-950">
-          {paragraphs.map((paragraph, index) => (
-            <p key={`${pageNumber}-${index}`}>{paragraph}</p>
-          ))}
         </div>
       </div>
 
@@ -314,27 +371,33 @@ function ReaderScreen({
 function BookStatusScreen({
   book,
   error,
-  loading
+  loading,
+  paginating
 }: {
   book: BookSource;
   error?: string;
   loading: boolean;
+  paginating: boolean;
 }) {
   return (
     <div className="flex h-full w-full items-center justify-center px-6 text-center">
       <div>
         <p className="text-sm uppercase tracking-[0.18em] text-neutral-500">
-          {loading ? "Loading" : "Unavailable"}
+          {paginating ? "Paginating" : loading ? "Loading" : "Unavailable"}
         </p>
         <h1 className="mt-3 text-4xl font-semibold text-neutral-950">
           {book.title}
         </h1>
         <p className="mt-3 text-lg text-neutral-600">
-          {error ?? "Preparing EPUB pages."}
+          {error ?? "Preparing measured pages."}
         </p>
       </div>
     </div>
   );
+}
+
+function getViewportKey() {
+  return `${window.innerWidth}x${window.innerHeight}`;
 }
 
 export default App;

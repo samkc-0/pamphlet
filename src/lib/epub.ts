@@ -3,13 +3,12 @@ import JSZip from "jszip";
 export type EpubSection = {
   chapterTitle?: string;
   id: string;
-  pageNumber: number;
   paragraphs: string[];
 };
 
 export type EpubBook = {
   author?: string;
-  sections: EpubSection[];
+  chapters: EpubSection[];
   title?: string;
 };
 
@@ -36,7 +35,7 @@ export async function loadEpub(url: string): Promise<EpubBook> {
   const spineIds = parseSpine(opfDocument);
   const metadata = parseMetadata(opfDocument);
 
-  const chapterPages = await Promise.all(
+  const chapters: Array<EpubSection | null> = await Promise.all(
     spineIds.map(async (idref) => {
       const item = manifest.get(idref);
 
@@ -48,23 +47,23 @@ export async function loadEpub(url: string): Promise<EpubBook> {
       const html = await readZipText(zip, sectionPath);
       const { heading, paragraphs } = extractReadableText(html);
 
-      return paginateParagraphs({
-        chapterId: item.id,
+      if (paragraphs.length === 0) {
+        return null;
+      }
+
+      return {
         chapterTitle: heading,
+        id: item.id,
         paragraphs
-      });
+      } satisfies EpubSection;
     })
   );
-  const sections = chapterPages
-    .flat()
-    .filter((section): section is Omit<EpubSection, "pageNumber"> =>
-      Boolean(section)
-    )
-    .map((section, index) => ({ ...section, pageNumber: index + 1 }));
 
   return {
     ...metadata,
-    sections
+    chapters: chapters.filter(
+      (chapter): chapter is EpubSection => chapter !== null
+    )
   };
 }
 
@@ -141,53 +140,6 @@ function extractReadableText(html: string) {
         ? paragraphs
         : [textContent(document.body)].filter(Boolean)
   };
-}
-
-function paginateParagraphs({
-  chapterId,
-  chapterTitle,
-  paragraphs
-}: {
-  chapterId: string;
-  chapterTitle?: string;
-  paragraphs: string[];
-}) {
-  const pages: Omit<EpubSection, "pageNumber">[] = [];
-  let page: string[] = [];
-  let pageLength = 0;
-  const targetLength = 850;
-  const maxLength = 1150;
-
-  for (const paragraph of paragraphs) {
-    const nextLength = pageLength + paragraph.length;
-    const shouldStartNewPage =
-      page.length > 0 &&
-      (nextLength > maxLength ||
-        (pageLength > targetLength && paragraph.length > 120));
-
-    if (shouldStartNewPage) {
-      pages.push({
-        chapterTitle,
-        id: `${chapterId}-${pages.length + 1}`,
-        paragraphs: page
-      });
-      page = [];
-      pageLength = 0;
-    }
-
-    page.push(paragraph);
-    pageLength += paragraph.length;
-  }
-
-  if (page.length > 0) {
-    pages.push({
-      chapterTitle,
-      id: `${chapterId}-${pages.length + 1}`,
-      paragraphs: page
-    });
-  }
-
-  return pages;
 }
 
 function textContent(element: Element | null) {
