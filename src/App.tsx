@@ -374,7 +374,7 @@ function ReaderScreen({
   title: string;
 }) {
   return (
-    <article className="grid h-full grid-rows-[auto_1fr_auto] overflow-hidden bg-white px-5 py-5 sm:px-10 sm:py-7">
+    <article className="grid h-full grid-rows-[auto_1fr] overflow-hidden bg-white px-5 py-5 sm:px-10 sm:py-7">
       <header className="mx-auto flex w-full max-w-3xl items-baseline justify-between gap-4 border-b border-neutral-200 pb-3 text-sm text-neutral-500">
         <div className="min-w-0 truncate">
           <span className="text-neutral-900">{title}</span>
@@ -398,10 +398,6 @@ function ReaderScreen({
           </div>
         </div>
       </div>
-
-      <footer className="mx-auto w-full max-w-3xl border-t border-neutral-200 pt-3 text-center text-sm text-neutral-500">
-        {pageNumber}
-      </footer>
     </article>
   );
 }
