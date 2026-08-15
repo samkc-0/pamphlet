@@ -73,6 +73,12 @@ type PaginatedBook = {
   viewportKey: string;
 };
 
+type PageJump = {
+  pageId: string;
+  rowId: string;
+  serial: number;
+};
+
 const LIBRARY_BOOKS_PER_PAGE = 5;
 const MAX_OPEN_BOOKS = 5;
 
@@ -90,6 +96,7 @@ function App() {
   const [savedPageByBookId, setSavedPageByBookId] = useState<
     Record<string, string>
   >({});
+  const [pageJump, setPageJump] = useState<PageJump | null>(null);
   const [viewportKey, setViewportKey] = useState(() => getViewportKey());
 
   useEffect(() => {
@@ -172,18 +179,28 @@ function App() {
     }, 0);
   }, []);
 
+  const jumpToBookPage = useCallback((bookId: string, pageId: string) => {
+    setPageJump({
+      pageId,
+      rowId: bookId,
+      serial: Date.now()
+    });
+  }, []);
+
   const rows = useMemo(
     () =>
       createArticleRows({
         loadedBooks,
         openBookIds,
         activePageByRowId,
+        jumpToBookPage,
         paginatedBooks,
         savedPageByBookId,
         toggleBook
       }),
     [
       activePageByRowId,
+      jumpToBookPage,
       loadedBooks,
       openBookIds,
       paginatedBooks,
@@ -214,6 +231,7 @@ function App() {
           return shallowEqualRecords(current, next) ? current : next;
         });
       }}
+      pageJump={pageJump}
       rows={rows}
     />
   );
@@ -221,6 +239,7 @@ function App() {
 
 function createArticleRows({
   activePageByRowId,
+  jumpToBookPage,
   loadedBooks,
   openBookIds,
   paginatedBooks,
@@ -228,6 +247,7 @@ function createArticleRows({
   toggleBook
 }: {
   activePageByRowId: Record<string, string>;
+  jumpToBookPage: (bookId: string, pageId: string) => void;
   loadedBooks: Record<string, LoadedBook>;
   openBookIds: string[];
   paginatedBooks: Record<string, PaginatedBook>;
@@ -262,7 +282,8 @@ function createArticleRows({
           book,
           loadedBooks[book.id],
           paginatedBooks[book.id]?.pages,
-          savedPageByBookId[book.id]
+          savedPageByBookId[book.id],
+          jumpToBookPage
         )
       )
   ];
@@ -272,7 +293,8 @@ function createBookRow(
   book: BookSource,
   loadedBook?: LoadedBook,
   pages?: ReaderPage[],
-  savedPageId?: string
+  savedPageId?: string,
+  jumpToBookPage?: (bookId: string, pageId: string) => void
 ): WorkspaceRow {
   if (pages?.length) {
     const title = loadedBook?.data?.title ?? book.title;
@@ -289,6 +311,13 @@ function createBookRow(
             pageNumber={index + 1}
             pageTotal={pages.length}
             chapterTitle={page.chapterTitle}
+            onPageChange={(pageNumber) => {
+              const nextPage = pages[pageNumber - 1];
+
+              if (nextPage) {
+                jumpToBookPage?.(book.id, nextPage.id);
+              }
+            }}
             paragraphs={page.paragraphs}
             title={title}
           />
@@ -410,6 +439,7 @@ function LibraryScreen({
 function ReaderScreen({
   author,
   chapterTitle,
+  onPageChange,
   paragraphs,
   pageNumber,
   pageTotal,
@@ -417,11 +447,33 @@ function ReaderScreen({
 }: {
   author: string;
   chapterTitle?: string;
+  onPageChange: (pageNumber: number) => void;
   pageNumber: number;
   pageTotal: number;
   paragraphs: string[];
   title: string;
 }) {
+  const [pageDraft, setPageDraft] = useState(String(pageNumber));
+
+  useEffect(() => {
+    setPageDraft(String(pageNumber));
+  }, [pageNumber]);
+
+  const commitPageDraft = () => {
+    const parsedPage = Number.parseInt(pageDraft, 10);
+    const nextPage = clampNumber(
+      Number.isFinite(parsedPage) ? parsedPage : pageNumber,
+      1,
+      pageTotal
+    );
+
+    setPageDraft(String(nextPage));
+
+    if (nextPage !== pageNumber) {
+      onPageChange(nextPage);
+    }
+  };
+
   return (
     <article className="grid h-full grid-rows-[auto_1fr] overflow-hidden bg-white px-5 py-5 sm:px-10 sm:py-7">
       <header className="mx-auto flex w-full max-w-3xl min-w-0 items-baseline justify-between gap-4 border-b border-neutral-200 pb-3 text-sm text-neutral-500">
@@ -430,9 +482,26 @@ function ReaderScreen({
           <span className="mx-2 text-neutral-300">/</span>
           <span className="truncate">{author}</span>
         </div>
-        <div className="shrink-0">
-          {pageNumber} / {pageTotal}
-        </div>
+        <label className="flex shrink-0 items-baseline gap-1 text-neutral-500">
+          <span className="sr-only">Page</span>
+          <input
+            aria-label={`Page, 1 through ${pageTotal}`}
+            className="w-12 appearance-none bg-transparent text-right text-neutral-950 outline-none [font-variant-numeric:tabular-nums] focus-visible:underline"
+            inputMode="numeric"
+            max={pageTotal}
+            min={1}
+            onBlur={commitPageDraft}
+            onChange={(event) => setPageDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.currentTarget.blur();
+              }
+            }}
+            type="number"
+            value={pageDraft}
+          />
+          <span>/ {pageTotal}</span>
+        </label>
       </header>
 
       <div className="mx-auto flex min-h-0 w-full max-w-3xl min-w-0 flex-col justify-start overflow-hidden py-5 sm:py-8">
@@ -504,6 +573,10 @@ function chunkBooks(books: BookSource[], size: number) {
   }
 
   return chunks;
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function shallowEqualRecords(

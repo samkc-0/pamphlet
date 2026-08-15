@@ -42,6 +42,11 @@ type SwipeWorkspaceProps = {
     activePageByRowId: Record<string, string>;
     activeRowId: string;
   }) => void;
+  pageJump?: {
+    pageId: string;
+    rowId: string;
+    serial: number;
+  } | null;
   rows: WorkspaceRow[];
   swipe?: boolean;
 };
@@ -50,6 +55,7 @@ export function SwipeWorkspace({
   initialRowId,
   keyboard = true,
   onStateChange,
+  pageJump,
   rows,
   swipe = true
 }: SwipeWorkspaceProps) {
@@ -103,6 +109,24 @@ export function SwipeWorkspace({
       rows.some((row) => row.id === current) ? current : rows[0]?.id ?? ""
     );
   }, [rows]);
+
+  useEffect(() => {
+    if (!pageJump) return;
+
+    const row = rows.find((candidate) => candidate.id === pageJump.rowId);
+    const page = row?.pages.find((candidate) => candidate.id === pageJump.pageId);
+
+    if (!row || !page) return;
+
+    setActivePageByRowId((current) =>
+      current[row.id] === page.id
+        ? current
+        : {
+            ...current,
+            [row.id]: page.id
+          }
+    );
+  }, [pageJump, rows]);
 
   const startTransition = useCallback(
     (to: ReactNode, direction: Direction, commit: () => void) => {
@@ -181,6 +205,8 @@ export function SwipeWorkspace({
     if (!keyboard) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
+      if (isInteractiveTarget(event.target)) return;
+
       if (event.key === "ArrowLeft") navigate("left");
       if (event.key === "ArrowRight") navigate("right");
       if (event.key === "ArrowUp") navigate("up");
@@ -289,7 +315,7 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-function isInteractiveTarget(target: EventTarget) {
+function isInteractiveTarget(target: EventTarget | null) {
   const element =
     target instanceof Element
       ? target
