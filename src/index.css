@@ -42,34 +42,50 @@
 @layer utilities {
   .screen-enter-left {
     animation: screen-enter-left 300ms ease-out both;
+    backface-visibility: hidden;
+    will-change: transform;
   }
 
   .screen-enter-right {
     animation: screen-enter-right 300ms ease-out both;
+    backface-visibility: hidden;
+    will-change: transform;
   }
 
   .screen-enter-up {
     animation: screen-enter-up 300ms ease-out both;
+    backface-visibility: hidden;
+    will-change: transform;
   }
 
   .screen-enter-down {
     animation: screen-enter-down 300ms ease-out both;
+    backface-visibility: hidden;
+    will-change: transform;
   }
 
   .screen-exit-left {
     animation: screen-exit-left 300ms ease-out both;
+    backface-visibility: hidden;
+    will-change: transform;
   }
 
   .screen-exit-right {
     animation: screen-exit-right 300ms ease-out both;
+    backface-visibility: hidden;
+    will-change: transform;
   }
 
   .screen-exit-up {
     animation: screen-exit-up 300ms ease-out both;
+    backface-visibility: hidden;
+    will-change: transform;
   }
 
   .screen-exit-down {
     animation: screen-exit-down 300ms ease-out both;
+    backface-visibility: hidden;
+    will-change: transform;
   }
 
   @keyframes screen-enter-left {
