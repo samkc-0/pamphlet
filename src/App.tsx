@@ -379,7 +379,7 @@ function LibraryScreen({
     <div className="flex min-h-full items-center px-5 py-8 sm:px-10 sm:py-12">
       <div className="mx-auto w-full max-w-3xl">
         <header className="mb-4 border-neutral-300 pb-2 text-center sm:mb-6 sm:pb-4">
-          <h1 className="mt-4 text-4xl font-semibold leading-tight text-neutral-950 sm:text-6xl">
+          <h1 className="mt-4 font-['Cormorant_Unicase'] text-4xl font-bold leading-tight text-neutral-950 sm:text-6xl">
             Contents
           </h1>
           <span
