@@ -8,60 +8,6 @@ import {
 import { loadEpub, type EpubBook } from "@/lib/epub";
 import { paginateBookByLayout, type ReaderPage } from "@/lib/pagination";
 
-const ROW_MARKERS = [
-  "⓪",
-  "①",
-  "②",
-  "③",
-  "④",
-  "⑤",
-  "⑥",
-  "⑦",
-  "⑧",
-  "⑨",
-  "⑩",
-  "⑪",
-  "⑫",
-  "⑬",
-  "⑭",
-  "⑮",
-  "⑯",
-  "⑰",
-  "⑱",
-  "⑲",
-  "⑳",
-  "㉑",
-  "㉒",
-  "㉓",
-  "㉔",
-  "㉕",
-  "㉖",
-  "㉗",
-  "㉘",
-  "㉙",
-  "㉚",
-  "㉛",
-  "㉜",
-  "㉝",
-  "㉞",
-  "㉟",
-  "㊱",
-  "㊲",
-  "㊳",
-  "㊴",
-  "㊵",
-  "㊶",
-  "㊷",
-  "㊸",
-  "㊹",
-  "㊺",
-  "㊻",
-  "㊼",
-  "㊽",
-  "㊾",
-  "㊿"
-];
-
 type LoadedBook = {
   data?: EpubBook;
   error?: string;
@@ -273,10 +219,7 @@ function LibraryScreen({
   return (
     <div className="flex min-h-full items-center px-5 py-8 sm:px-10 sm:py-12">
       <div className="mx-auto w-full max-w-3xl">
-        <header className="mb-8 border-b border-neutral-300 pb-5 text-center">
-          <div className="text-sm uppercase tracking-[0.18em] text-neutral-500">
-            {ROW_MARKERS[0]} Library
-          </div>
+        <header className="mb-8 border-neutral-300 pb-5 text-center">
           <h1 className="mt-4 text-4xl font-semibold leading-tight text-neutral-950 sm:text-6xl">
             Contents
           </h1>
@@ -302,11 +245,7 @@ function LibraryScreen({
                       aria-hidden="true"
                       className="ml-2 inline-flex w-8 items-center justify-start text-neutral-500"
                     >
-                      {isOpen ? (
-                        ROW_MARKERS[rowNumber]
-                      ) : (
-                        <span className="inline-block h-[1em] w-[1em] rounded-full border border-current" />
-                      )}
+                      <RowMarker number={isOpen ? rowNumber : undefined} />
                     </span>
                   </span>
                   <span className="mt-1 block text-base text-neutral-600">
@@ -367,6 +306,39 @@ function ReaderScreen({
         {pageNumber}
       </footer>
     </article>
+  );
+}
+
+function RowMarker({ number }: { number?: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className="h-[1em] w-[1em] overflow-visible"
+      focusable="false"
+      viewBox="0 0 32 32"
+    >
+      <circle
+        cx="16"
+        cy="16"
+        fill="none"
+        r="14"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
+      {number ? (
+        <text
+          dominantBaseline="central"
+          fill="currentColor"
+          fontFamily="Georgia, Cambria, 'Times New Roman', Times, serif"
+          fontSize={number > 9 ? 14 : 17}
+          textAnchor="middle"
+          x="16"
+          y="16"
+        >
+          {number}
+        </text>
+      ) : null}
+    </svg>
   );
 }
 
