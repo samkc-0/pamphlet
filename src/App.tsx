@@ -90,6 +90,11 @@ type BookMetadataEdit = {
 const LIBRARY_BOOKS_PER_PAGE = 5;
 const LONG_PRESS_MS = 550;
 const MAX_OPEN_BOOKS = 5;
+const LANGUAGE_CHOICES = [
+  { code: "en", flag: "🇬🇧", label: "English" },
+  { code: "es", flag: "🇪🇸", label: "Spanish" },
+  { code: "it", flag: "🇮🇹", label: "Italian" }
+];
 
 function App() {
   const [isDarkMode, setIsDarkMode] = useState(false);
@@ -481,7 +486,9 @@ function BookMetadataDialog({
   onSave: (bookId: string, metadata: BookMetadataEdit) => void;
 }) {
   const [author, setAuthor] = useState(metadata.author);
-  const [languageCode, setLanguageCode] = useState(metadata.languageCode);
+  const [languageCode, setLanguageCode] = useState(
+    getSupportedLanguageCode(metadata.languageCode)
+  );
   const [title, setTitle] = useState(metadata.title);
 
   useEffect(() => {
@@ -500,7 +507,7 @@ function BookMetadataDialog({
 
     onSave(book.id, {
       author: author.trim(),
-      languageCode: normalizeLanguageCode(languageCode),
+      languageCode: getSupportedLanguageCode(languageCode),
       title: title.trim()
     });
   };
@@ -554,28 +561,35 @@ function BookMetadataDialog({
 
           <label className="block">
             <span className="block text-sm text-neutral-500 dark:text-neutral-400">
-              ISO language code
+              Language
             </span>
-            <input
-              className="mt-1 w-full border-b border-neutral-300 bg-transparent py-1 text-lg lowercase outline-none focus:border-neutral-950 dark:border-neutral-700 dark:focus:border-neutral-100"
-              list="language-codes"
-              maxLength={12}
-              onChange={(event) => setLanguageCode(event.target.value)}
-              pattern="[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*"
-              required
-              type="text"
-              value={languageCode}
-            />
-            <datalist id="language-codes">
-              <option value="en" />
-              <option value="es" />
-              <option value="fr" />
-              <option value="it" />
-              <option value="de" />
-              <option value="pt" />
-              <option value="zh" />
-              <option value="ja" />
-            </datalist>
+            <div
+              aria-label="Book language"
+              className="mt-3 flex justify-center gap-3"
+              role="radiogroup"
+            >
+              {LANGUAGE_CHOICES.map((language) => {
+                const isSelected = language.code === languageCode;
+
+                return (
+                  <button
+                    aria-checked={isSelected}
+                    aria-label={language.label}
+                    className={`grid h-12 w-12 place-items-center border text-2xl outline-none transition-colors ${
+                      isSelected
+                        ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
+                        : "border-neutral-300 dark:border-neutral-700"
+                    } focus-visible:border-neutral-950 dark:focus-visible:border-neutral-100`}
+                    key={language.code}
+                    onClick={() => setLanguageCode(language.code)}
+                    role="radio"
+                    type="button"
+                  >
+                    <span aria-hidden="true">{language.flag}</span>
+                  </button>
+                );
+              })}
+            </div>
           </label>
         </div>
 
@@ -916,6 +930,16 @@ function getBookMetadata(
 
 function normalizeLanguageCode(languageCode: string) {
   return languageCode.trim().toLowerCase() || "und";
+}
+
+function getSupportedLanguageCode(languageCode: string) {
+  const normalizedLanguageCode = normalizeLanguageCode(languageCode);
+
+  return LANGUAGE_CHOICES.some(
+    (language) => language.code === normalizedLanguageCode
+  )
+    ? normalizedLanguageCode
+    : LANGUAGE_CHOICES[0].code;
 }
 
 function getViewportKey() {
