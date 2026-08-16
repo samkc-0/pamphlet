@@ -21,7 +21,7 @@ export async function lookupWord(
 }
 
 async function lookupDefinition(word: string): Promise<WordLookupResult> {
-  const response = await fetch(
+  const response = await fetchWithRetry(
     `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`
   );
 
@@ -54,7 +54,7 @@ async function lookupTranslation(
   url.searchParams.set("dt", "t");
   url.searchParams.set("q", word);
 
-  const response = await fetch(url);
+  const response = await fetchWithRetry(url);
 
   if (!response.ok) {
     throw new Error("No translation found.");
@@ -67,6 +67,33 @@ async function lookupTranslation(
   }
 
   return { kind: "translation", text: translation };
+}
+
+async function fetchWithRetry(
+  input: string | URL,
+  retriesLeft = 1
+): Promise<Response> {
+  try {
+    const response = await fetch(input);
+
+    if (!response.ok && response.status >= 500 && retriesLeft > 0) {
+      await wait(400);
+      return fetchWithRetry(input, retriesLeft - 1);
+    }
+
+    return response;
+  } catch (error) {
+    if (retriesLeft > 0) {
+      await wait(400);
+      return fetchWithRetry(input, retriesLeft - 1);
+    }
+
+    throw error;
+  }
+}
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function extractTranslation(payload: unknown): string | undefined {
