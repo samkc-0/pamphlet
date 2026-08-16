@@ -1336,7 +1336,7 @@ function ReaderScreen({
           <span className="sr-only">Page</span>
           <input
             aria-label={`Page, 1 through ${pageTotal}`}
-            className="w-12 appearance-none bg-transparent text-right text-neutral-950 outline-none [font-variant-numeric:tabular-nums] focus-visible:underline dark:text-neutral-100"
+            className="w-12 appearance-none bg-transparent text-right text-base text-neutral-950 outline-none [font-variant-numeric:tabular-nums] focus-visible:underline dark:text-neutral-100"
             inputMode="numeric"
             max={pageTotal}
             min={1}
