@@ -8,6 +8,10 @@ import {
   type WorkspaceRow
 } from "@/components/swipe-workspace";
 import {
+  WordLookupPopup,
+  type WordLookupState
+} from "@/components/word-lookup-popup";
+import {
   readStoredAppState,
   writeStoredAppState
 } from "@/lib/app-state-store";
@@ -17,12 +21,15 @@ import {
   readBookData,
   saveUploadedBook
 } from "@/lib/books-db";
+import { lookupWord } from "@/lib/dictionary";
 import { loadEpubFromArrayBuffer, type EpubBook } from "@/lib/epub";
 import {
   readCachedPagination,
   writeCachedPagination
 } from "@/lib/pagination-cache";
 import { paginateBookByLayout, type ReaderPage } from "@/lib/pagination";
+import { loadPinnedWords, setWordPinned } from "@/lib/pinned-words";
+import { normalizeWord, tokenizeParagraph } from "@/lib/tokenize";
 
 const ROW_MARKERS = [
   "⓪",
@@ -1301,10 +1308,81 @@ function ReaderScreen({
   title: string;
 }) {
   const [pageDraft, setPageDraft] = useState(String(pageNumber));
+  const [pinnedWords, setPinnedWords] = useState<Set<string>>(new Set());
+  const [lookup, setLookup] = useState<WordLookupState | null>(null);
 
   useEffect(() => {
     setPageDraft(String(pageNumber));
   }, [pageNumber]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadPinnedWords(languageCode).then((words) => {
+      if (!cancelled) setPinnedWords(words);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [languageCode]);
+
+  const handleWordClick = (
+    event: MouseEvent<HTMLButtonElement>,
+    rawWord: string
+  ) => {
+    const word = normalizeWord(rawWord);
+    const anchorRect = event.currentTarget.getBoundingClientRect();
+
+    setLookup({
+      anchorRect,
+      pinned: pinnedWords.has(word),
+      status: "loading",
+      word
+    });
+
+    lookupWord(word, languageCode)
+      .then((result) => {
+        setLookup((current) =>
+          current && current.word === word
+            ? { ...current, result, status: "ready" }
+            : current
+        );
+      })
+      .catch((error: unknown) => {
+        setLookup((current) =>
+          current && current.word === word
+            ? {
+                ...current,
+                error: error instanceof Error ? error.message : "Lookup failed.",
+                status: "error"
+              }
+            : current
+        );
+      });
+  };
+
+  const handleTogglePin = () => {
+    if (!lookup) return;
+
+    const nextPinned = !lookup.pinned;
+    const { word } = lookup;
+
+    setLookup({ ...lookup, pinned: nextPinned });
+    setPinnedWords((current) => {
+      const next = new Set(current);
+
+      if (nextPinned) {
+        next.add(word);
+      } else {
+        next.delete(word);
+      }
+
+      return next;
+    });
+
+    setWordPinned(languageCode, word, nextPinned).catch(() => {});
+  };
 
   const commitPageDraft = () => {
     const parsedPage = Number.parseInt(pageDraft, 10);
@@ -1368,12 +1446,39 @@ function ReaderScreen({
             <div className="reader-chapter-heading">{chapterTitle}</div>
           ) : null}
           <div className="reader-page-body">
-            {paragraphs.map((paragraph, index) => (
-              <p key={`${pageNumber}-${index}`}>{paragraph}</p>
+            {paragraphs.map((paragraph, paragraphIndex) => (
+              <p key={`${pageNumber}-${paragraphIndex}`}>
+                {tokenizeParagraph(paragraph).map((token, tokenIndex) =>
+                  token.type === "word" ? (
+                    <button
+                      className={
+                        pinnedWords.has(normalizeWord(token.value))
+                          ? "reader-word underline decoration-dashed underline-offset-2"
+                          : "reader-word"
+                      }
+                      key={tokenIndex}
+                      onClick={(event) => handleWordClick(event, token.value)}
+                      type="button"
+                    >
+                      {token.value}
+                    </button>
+                  ) : (
+                    <span key={tokenIndex}>{token.value}</span>
+                  )
+                )}
+              </p>
             ))}
           </div>
         </div>
       </div>
+
+      {lookup ? (
+        <WordLookupPopup
+          lookup={lookup}
+          onDismiss={() => setLookup(null)}
+          onTogglePin={handleTogglePin}
+        />
+      ) : null}
     </article>
   );
 }

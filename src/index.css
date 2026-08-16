@@ -140,6 +140,11 @@
     overflow-wrap: anywhere;
   }
 
+  .reader-word {
+    all: unset;
+    cursor: pointer;
+  }
+
   .reader-measurer {
     contain: layout style paint;
     left: -10000px;
