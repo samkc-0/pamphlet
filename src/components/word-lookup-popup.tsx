@@ -1,4 +1,4 @@
-import { Pin } from "lucide-react";
+import { Circle } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { WordLookupResult } from "@/lib/dictionary";
@@ -79,7 +79,7 @@ export function WordLookupPopup({
             onClick={onTogglePin}
             type="button"
           >
-            <Pin className="h-4 w-4" fill={lookup.pinned ? "currentColor" : "none"} />
+            <Circle className="h-3 w-3" fill={lookup.pinned ? "currentColor" : "none"} />
           </button>
         </div>
 
