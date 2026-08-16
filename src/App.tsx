@@ -268,10 +268,8 @@ function App() {
     try {
       for (const file of files) {
         const data = await file.arrayBuffer();
-        const [metadata, fingerprint] = await Promise.all([
-          loadEpubFromArrayBuffer(data.slice(0)),
-          fingerprintArrayBuffer(data)
-        ]);
+        const metadata = await loadEpubFromArrayBuffer(data.slice(0));
+        const fingerprint = fingerprintArrayBuffer(data);
         const title = metadata.title?.trim() || file.name.replace(/\.epub$/i, "");
         const author = metadata.author?.trim() || "Unknown";
         const now = Date.now();
@@ -1433,11 +1431,20 @@ async function refreshBookCatalog() {
   return loadBookCatalog();
 }
 
-async function fingerprintArrayBuffer(data: ArrayBuffer) {
-  const digest = await crypto.subtle.digest("SHA-256", data);
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+function fingerprintArrayBuffer(data: ArrayBuffer) {
+  const bytes = new Uint8Array(data);
+  let hashA = 0x811c9dc5;
+  let hashB = 0x811c9dc5 ^ 0xffffffff;
+
+  for (const byte of bytes) {
+    hashA = Math.imul(hashA ^ byte, 0x01000193);
+    hashB = Math.imul(hashB ^ byte, 0x01000193);
+  }
+
+  return (
+    (hashA >>> 0).toString(16).padStart(8, "0") +
+    (hashB >>> 0).toString(16).padStart(8, "0")
+  );
 }
 
 function slugify(input: string) {
