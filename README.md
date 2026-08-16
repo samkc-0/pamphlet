@@ -12,7 +12,7 @@ Dictionary lookups and word highlighting are supported.
 
 One  unintuitive UI aspect I have to insist on, is that clicking on a book on your library _does not take you to that book_! It merely sets it to _open_. When a book open, it will have an icon next to its title indicating which row in the UI it occupies, and you can swipe vertically to that row to start swiping horizontally through the books pages.
 
-The layout is something like this, you swipe between screens, or navigate with  <kbd>←</kbd><kbd>↓</kbd><kbd>↑</kbd>→</kbd>:
+The layout is something like this, you swipe between screens, or navigate with  <kbd>←</kbd><kbd>↓</kbd><kbd>↑</kbd><kbd>→</kbd>:
 
 ```
                                                                                    
