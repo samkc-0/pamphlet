@@ -1,6 +1,6 @@
 # Pamphlet
 
-Pamphlet is an e-reader that makes it easier to have multiple novels on the go at once, maybe in different languages.
+Pamphlet is an e-reader that makes it easier to have multiple novels on the go at once, maybe in different languages. Currently only supports ePub & five books open at a time.
 
 UX is inspired by pamphlets, tourist guides, and I'll maybe a little bit by reels.
 
