@@ -1,52 +1,75 @@
 # Pamphlet
 
-A small React workspace for moving through 2D rows of screens.
+Pamphlet is an e-reader that makes it easier to have multiple novels on the go at once, maybe in different languages. UX is inspired by pamphlets, tourist guides, and I'll admit maybe a little bit by reels.
 
-The reusable piece is `SwipeWorkspace`. It treats the app as vertical rows, where each row has its own horizontal pages. Moving left/right changes the active page for the current row. Moving up/down switches rows and restores the saved page for that target row.
+It's meant to feel like a big 2D book: you don't just turn pages left and right, but up and down too. Vertical navigation moves between contexts (i.e. individual books, your library, user settings.).
 
-```tsx
-import { SwipeWorkspace, type WorkspaceRow } from "@/components/swipe-workspace";
+Horizontal navigation moves through a context (usually the pages of a book).
 
-const rows: WorkspaceRow[] = [
-  {
-    id: "library",
-    pages: [
-      { id: "all", render: () => <Library /> },
-      { id: "open", render: () => <OpenArticles /> }
-    ]
-  },
-  {
-    id: "article-one",
-    pages: [
-      { id: "page-1", render: () => <Article articleId="one" page={1} /> },
-      { id: "page-2", render: () => <Article articleId="one" page={2} /> }
-    ]
-  }
-];
+Dictionary lookups and word highlighting are supported.
 
-export function App() {
-  return <SwipeWorkspace rows={rows} />;
-}
+One  unintuitive UI aspect I have to insist on, is that clicking on a book on your library _does not take you to that book_! It merely sets it to _open_. When a book open, it will have an icon next to its title indicating which row in the UI it occupies, and you can swipe vertically to that row to start swiping horizontally through the books pages.
+
+The layout is something like this, you swipe between screens:
+
 ```
-
-Rows and pages use stable IDs, so dynamic rows can preserve their horizontal position while rows are added, removed, or reordered.
-
-Another possible shape:
-
-```tsx
-const rows = projects.map((project) => ({
-  id: project.id,
-  pages: [
-    { id: "editor", render: () => <Editor project={project} /> },
-    { id: "repl", render: () => <Repl project={project} /> },
-    { id: "webgl", render: () => <WebGLPreview project={project} /> }
-  ]
-}));
-```
-
-Run locally:
-
-```bash
-bun install
-bun run dev
-```
+                                                                                   
+                                                                                   
+                                ┌───────────────┐                                  
+                                │               │                                  
+                                │               │                                  
+                                │               │                                  
+                                │   settings    │                                  
+                                │               │                                  
+           App opens here       │               │                                  
+                │               │               │                                  
+                │               │               │                                  
+                └────────────┐  └──────┬────────┘                                  
+                             └─────┐   │                                           
+            ┌───────────────┐   ┌──┼───┴────────┐   ┌───────────────┐              
+            │               │   │  │            │   │               │              
+            │               │   │  ▀            │   │               │              
+            │               │   │   library     │   │    library    │              
+            │  upload book  │   │               │   │               │              
+            │               ┼───┤               ┼───┤               │              
+            │               │   │     (1)       │   │      (2)      │              
+            │               │   │               │   │               │              
+            │               │   │               │   │               │              
+            └───────────────┘   └──────┬────────┘   └───────────────┘              
+                                       │                                           
+            ┌───────────────┐   ┌──────┴────────┐   ┌───────────────┐              
+            │               │   │               │   │               │              
+            │               │   │  current      │   │               │              
+            │               │   │   page of     │   │               │              
+            │   previous    │   │    book 1     │   │               │              
+            │    page       ┼───┤               ┼───┤  next page    │              
+            │               │   │               │   │               │              
+            │               │   │               │   │               │              
+            │               │   │               │   │               │              
+            └───────────────┘   └──────┬────────┘   └───────────────┘              
+                                       │                                           
+            ┌───────────────┐   ┌──────┴────────┐                                  
+            │               │   │               │                                  
+            │               │   │  last, and    │                                  
+            │   previous    │   │    current    │                                  
+            │    page       │   │     page of   │                     ─            
+            │               ┼───┤      book 2   │                                  
+            │               │   │               │                                  
+            │               │   │               │                                  
+            │               │   │               │                                  
+            └───────────────┘   └──────┬────────┘               ─                  
+                                       │                                           
+                                ┌──────┴────────┐   ┌───────────────┐              
+                                │               │   │               │              
+                                │               │   │               │              
+                                │  first, and   │   │               │              
+                                │    current    │   │   next page   │              
+                                │     page of   ┼───┤               │              
+                                │      book 3   │   │               │              
+                                │               │   │               │              
+                                │               │   │               │              
+                                └───────────────┘   └───────────────┘
+```      
+                                                                                   
+                                                                                   
+                                                                                   
