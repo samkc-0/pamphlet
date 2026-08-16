@@ -883,7 +883,7 @@ function SpinningCog({
   return (
     <button
       aria-label={label}
-      className="inline-grid h-7 w-7 place-items-center text-neutral-500 outline-none focus-visible:text-neutral-950 dark:text-neutral-400 dark:focus-visible:text-neutral-100"
+      className="inline-grid h-10 w-10 place-items-center text-neutral-500 outline-none focus-visible:text-neutral-950 dark:text-neutral-400 dark:focus-visible:text-neutral-100"
       onClick={() => {
         if (animationsEnabled) {
           setSpinCount((current) => current + 1);
@@ -893,7 +893,7 @@ function SpinningCog({
     >
       <Settings
         aria-hidden="true"
-        className={`h-4 w-4 ${
+        className={`h-7 w-7 ${
           animationsEnabled && spinCount > 0 ? "cog-spin-once" : ""
         }`}
         key={spinCount}
