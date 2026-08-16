@@ -1453,7 +1453,7 @@ function ReaderScreen({
                     <button
                       className={
                         pinnedWords.has(normalizeWord(token.value))
-                          ? "reader-word underline decoration-dashed underline-offset-2"
+                          ? "reader-word reader-word--pinned"
                           : "reader-word"
                       }
                       key={tokenIndex}

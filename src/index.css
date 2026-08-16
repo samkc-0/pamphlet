@@ -145,6 +145,12 @@
     cursor: pointer;
   }
 
+  .reader-word--pinned {
+    text-decoration-line: underline;
+    text-decoration-style: dashed;
+    text-underline-offset: 2px;
+  }
+
   .reader-measurer {
     contain: layout style paint;
     left: -10000px;
