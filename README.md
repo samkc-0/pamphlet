@@ -1,6 +1,8 @@
 # Pamphlet
 
-Pamphlet is an e-reader that makes it easier to have multiple novels on the go at once, maybe in different languages. UX is inspired by pamphlets, tourist guides, and I'll admit maybe a little bit by reels.
+Pamphlet is an e-reader that makes it easier to have multiple novels on the go at once, maybe in different languages.
+
+UX is inspired by pamphlets, tourist guides, and I'll maybe a little bit by reels.
 
 It's meant to feel like a big 2D book: you don't just turn pages left and right, but up and down too. Vertical navigation moves between contexts (i.e. individual books, your library, user settings.).
 
