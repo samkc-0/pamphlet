@@ -145,6 +145,12 @@
     cursor: pointer;
   }
 
+  .sans-serif-font {
+    font-family:
+      ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica,
+      Arial, sans-serif;
+  }
+
   .reader-word--pinned {
     text-decoration-line: underline;
     text-decoration-style: dashed;

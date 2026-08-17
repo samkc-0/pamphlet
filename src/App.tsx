@@ -108,11 +108,14 @@ type BookMetadataEdit = {
   title: string;
 };
 
+type FontFamily = "sans" | "serif";
+
 type PersistedAppState = {
   activePageByRowId: Record<string, string>;
   activeRowId: string;
   animationsEnabled: boolean;
   bookMetadataEdits: Record<string, BookMetadataEdit>;
+  fontFamily: FontFamily;
   isDarkMode: boolean;
   openBookIds: string[];
   savedPageByBookId: Record<string, string>;
@@ -143,6 +146,9 @@ function App() {
   );
   const [isDarkMode, setIsDarkMode] = useState(
     () => defaultPersistedState.isDarkMode
+  );
+  const [fontFamily, setFontFamily] = useState<FontFamily>(
+    () => defaultPersistedState.fontFamily
   );
   const [bookMetadataEdits, setBookMetadataEdits] = useState<
     Record<string, BookMetadataEdit>
@@ -181,6 +187,7 @@ function App() {
       setActiveRowId(persistedState.activeRowId);
       setAnimationsEnabled(persistedState.animationsEnabled);
       setBookMetadataEdits(persistedState.bookMetadataEdits);
+      setFontFamily(persistedState.fontFamily);
       setIsDarkMode(persistedState.isDarkMode);
       setOpenBookIds(persistedState.openBookIds);
       setSavedPageByBookId(persistedState.savedPageByBookId);
@@ -332,6 +339,7 @@ function App() {
       activeRowId,
       animationsEnabled,
       bookMetadataEdits,
+      fontFamily,
       isDarkMode,
       openBookIds,
       savedPageByBookId,
@@ -356,6 +364,7 @@ function App() {
     activeRowId,
     animationsEnabled,
     bookMetadataEdits,
+    fontFamily,
     isStateLoaded,
     isDarkMode,
     openBookIds,
@@ -449,6 +458,10 @@ function App() {
     setAnimationsEnabled((current) => !current);
   }, []);
 
+  const toggleFontFamily = useCallback(() => {
+    setFontFamily((current) => (current === "serif" ? "sans" : "serif"));
+  }, []);
+
   const saveBookMetadata = useCallback(
     (bookId: string, metadata: BookMetadataEdit) => {
       setBookMetadataEdits((current) => ({
@@ -502,6 +515,7 @@ function App() {
         animationsEnabled,
         books,
         bookMetadataEdits,
+        fontFamily,
         isDarkMode,
         isSyncingState,
         isUploadingBooks,
@@ -514,6 +528,7 @@ function App() {
         savedPageByBookId,
         toggleAnimations,
         toggleDarkMode,
+        toggleFontFamily,
         toggleBook,
         uploadError,
         uploadBooks
@@ -523,6 +538,7 @@ function App() {
       animationsEnabled,
       books,
       bookMetadataEdits,
+      fontFamily,
       isDarkMode,
       isSyncingState,
       isUploadingBooks,
@@ -533,6 +549,7 @@ function App() {
       savedPageByBookId,
       toggleAnimations,
       toggleDarkMode,
+      toggleFontFamily,
       toggleBook,
       uploadError,
       uploadBooks
@@ -541,7 +558,7 @@ function App() {
 
   if (!isStateLoaded || !isBookCatalogLoaded) {
     return (
-      <div className={isDarkMode ? "dark" : ""}>
+      <div className={getRootClassName(isDarkMode, fontFamily)}>
         <SyncingScreen animationsEnabled={animationsEnabled} />
       </div>
     );
@@ -549,14 +566,14 @@ function App() {
 
   if (booksError) {
     return (
-      <div className={isDarkMode ? "dark" : ""}>
+      <div className={getRootClassName(isDarkMode, fontFamily)}>
         <CatalogErrorScreen error={booksError} />
       </div>
     );
   }
 
   return (
-    <div className={isDarkMode ? "dark" : ""}>
+    <div className={getRootClassName(isDarkMode, fontFamily)}>
       <SwipeWorkspace
         animations={animationsEnabled}
         initialPageByRowId={activePageByRowId}
@@ -610,6 +627,7 @@ function createArticleRows({
   animationsEnabled,
   books,
   bookMetadataEdits,
+  fontFamily,
   isDarkMode,
   isSyncingState,
   isUploadingBooks,
@@ -621,6 +639,7 @@ function createArticleRows({
   savedPageByBookId,
   toggleAnimations,
   toggleDarkMode,
+  toggleFontFamily,
   toggleBook,
   uploadError,
   uploadBooks
@@ -629,6 +648,7 @@ function createArticleRows({
   animationsEnabled: boolean;
   books: BookSource[];
   bookMetadataEdits: Record<string, BookMetadataEdit>;
+  fontFamily: FontFamily;
   isDarkMode: boolean;
   isSyncingState: boolean;
   isUploadingBooks: boolean;
@@ -640,6 +660,7 @@ function createArticleRows({
   savedPageByBookId: Record<string, string>;
   toggleAnimations: () => void;
   toggleDarkMode: () => void;
+  toggleFontFamily: () => void;
   toggleBook: (bookId: string) => void;
   uploadError: string | null;
   uploadBooks: (files: File[]) => Promise<void>;
@@ -653,9 +674,11 @@ function createArticleRows({
           render: () => (
             <SettingsScreen
               animationsEnabled={animationsEnabled}
+              fontFamily={fontFamily}
               isDarkMode={isDarkMode}
               toggleAnimations={toggleAnimations}
               toggleDarkMode={toggleDarkMode}
+              toggleFontFamily={toggleFontFamily}
             />
           )
         }
@@ -775,14 +798,18 @@ function createBookRow(
 
 function SettingsScreen({
   animationsEnabled,
+  fontFamily,
   isDarkMode,
   toggleAnimations,
-  toggleDarkMode
+  toggleDarkMode,
+  toggleFontFamily
 }: {
   animationsEnabled: boolean;
+  fontFamily: FontFamily;
   isDarkMode: boolean;
   toggleAnimations: () => void;
   toggleDarkMode: () => void;
+  toggleFontFamily: () => void;
 }) {
   return (
     <div className="flex min-h-full items-center px-5 py-8 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-12">
@@ -812,6 +839,15 @@ function SettingsScreen({
               type="button"
             >
               Animations {animationsEnabled ? "on" : "off"}
+            </button>
+
+            <button
+              aria-pressed={fontFamily === "sans"}
+              className="mx-auto block text-lg leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400"
+              onClick={toggleFontFamily}
+              type="button"
+            >
+              Font {fontFamily === "serif" ? "serif" : "sans-serif"}
             </button>
           </div>
         </fieldset>
@@ -1525,6 +1561,7 @@ function getDefaultPersistedAppState(): PersistedAppState {
     activeRowId: "library",
     animationsEnabled: true,
     bookMetadataEdits: {},
+    fontFamily: "serif",
     isDarkMode: false,
     openBookIds: [],
     savedPageByBookId: {},
@@ -1620,6 +1657,10 @@ function normalizePersistedAppState(
         ? state.animationsEnabled
         : defaultState.animationsEnabled,
     bookMetadataEdits,
+    fontFamily:
+      state.fontFamily === "sans" || state.fontFamily === "serif"
+        ? state.fontFamily
+        : defaultState.fontFamily,
     isDarkMode:
       typeof state.isDarkMode === "boolean"
         ? state.isDarkMode
@@ -1777,6 +1818,15 @@ function chunkBooks(
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
+}
+
+function getRootClassName(isDarkMode: boolean, fontFamily: FontFamily) {
+  return [
+    isDarkMode ? "dark" : "",
+    fontFamily === "sans" ? "sans-serif-font" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
 }
 
 function shallowEqualRecords(
