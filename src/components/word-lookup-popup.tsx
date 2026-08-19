@@ -1,11 +1,13 @@
-import { Circle } from "lucide-react";
+import { Circle, Volume2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { WordLookupResult } from "@/lib/dictionary";
+import { speakWord } from "@/lib/speech";
 
 export type WordLookupState = {
   anchorRect: DOMRect;
   error?: string;
+  languageCode: string;
   pinned: boolean;
   result?: WordLookupResult;
   status: "error" | "loading" | "ready";
@@ -68,19 +70,32 @@ export function WordLookupPopup({
           <span className="font-serif text-lg text-neutral-950 dark:text-neutral-100">
             {lookup.word}
           </span>
-          <button
-            aria-label={lookup.pinned ? "Unpin word" : "Pin word"}
-            aria-pressed={lookup.pinned}
-            className={`shrink-0 rounded-full p-1 ${
-              lookup.pinned
-                ? "text-neutral-950 dark:text-neutral-100"
-                : "text-neutral-400 dark:text-neutral-600"
-            }`}
-            onClick={onTogglePin}
-            type="button"
-          >
-            <Circle className="h-3 w-3" fill={lookup.pinned ? "currentColor" : "none"} />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              aria-label="Listen"
+              className="rounded-full p-1 text-neutral-500 dark:text-neutral-400"
+              onClick={() => speakWord(lookup.word, lookup.languageCode)}
+              type="button"
+            >
+              <Volume2 className="h-4 w-4" />
+            </button>
+            <button
+              aria-label={lookup.pinned ? "Unpin word" : "Pin word"}
+              aria-pressed={lookup.pinned}
+              className={`rounded-full p-1 ${
+                lookup.pinned
+                  ? "text-neutral-950 dark:text-neutral-100"
+                  : "text-neutral-400 dark:text-neutral-600"
+              }`}
+              onClick={onTogglePin}
+              type="button"
+            >
+              <Circle
+                className="h-3 w-3"
+                fill={lookup.pinned ? "currentColor" : "none"}
+              />
+            </button>
+          </div>
         </div>
 
         <p className="mt-2 text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">

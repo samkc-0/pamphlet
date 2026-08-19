@@ -29,6 +29,7 @@ import {
 } from "@/lib/pagination-cache";
 import { paginateBookByLayout, type ReaderPage } from "@/lib/pagination";
 import { loadPinnedWords, setWordPinned } from "@/lib/pinned-words";
+import { speakWord } from "@/lib/speech";
 import { normalizeWord, tokenizeParagraph } from "@/lib/tokenize";
 
 const ROW_MARKERS = [
@@ -114,6 +115,7 @@ type PersistedAppState = {
   activePageByRowId: Record<string, string>;
   activeRowId: string;
   animationsEnabled: boolean;
+  autoPlayWordAudio: boolean;
   bookMetadataEdits: Record<string, BookMetadataEdit>;
   fontFamily: FontFamily;
   isDarkMode: boolean;
@@ -149,6 +151,9 @@ function App() {
   );
   const [fontFamily, setFontFamily] = useState<FontFamily>(
     () => defaultPersistedState.fontFamily
+  );
+  const [autoPlayWordAudio, setAutoPlayWordAudio] = useState(
+    () => defaultPersistedState.autoPlayWordAudio
   );
   const [bookMetadataEdits, setBookMetadataEdits] = useState<
     Record<string, BookMetadataEdit>
@@ -186,6 +191,7 @@ function App() {
       setActivePageByRowId(persistedState.activePageByRowId);
       setActiveRowId(persistedState.activeRowId);
       setAnimationsEnabled(persistedState.animationsEnabled);
+      setAutoPlayWordAudio(persistedState.autoPlayWordAudio);
       setBookMetadataEdits(persistedState.bookMetadataEdits);
       setFontFamily(persistedState.fontFamily);
       setIsDarkMode(persistedState.isDarkMode);
@@ -338,6 +344,7 @@ function App() {
       activePageByRowId,
       activeRowId,
       animationsEnabled,
+      autoPlayWordAudio,
       bookMetadataEdits,
       fontFamily,
       isDarkMode,
@@ -363,6 +370,7 @@ function App() {
     activePageByRowId,
     activeRowId,
     animationsEnabled,
+    autoPlayWordAudio,
     bookMetadataEdits,
     fontFamily,
     isStateLoaded,
@@ -462,6 +470,10 @@ function App() {
     setFontFamily((current) => (current === "serif" ? "sans" : "serif"));
   }, []);
 
+  const toggleAutoPlayWordAudio = useCallback(() => {
+    setAutoPlayWordAudio((current) => !current);
+  }, []);
+
   const saveBookMetadata = useCallback(
     (bookId: string, metadata: BookMetadataEdit) => {
       setBookMetadataEdits((current) => ({
@@ -513,6 +525,7 @@ function App() {
     () =>
       createArticleRows({
         animationsEnabled,
+        autoPlayWordAudio,
         books,
         bookMetadataEdits,
         fontFamily,
@@ -527,6 +540,7 @@ function App() {
         paginatedBooks,
         savedPageByBookId,
         toggleAnimations,
+        toggleAutoPlayWordAudio,
         toggleDarkMode,
         toggleFontFamily,
         toggleBook,
@@ -536,6 +550,7 @@ function App() {
     [
       activePageByRowId,
       animationsEnabled,
+      autoPlayWordAudio,
       books,
       bookMetadataEdits,
       fontFamily,
@@ -548,6 +563,7 @@ function App() {
       paginatedBooks,
       savedPageByBookId,
       toggleAnimations,
+      toggleAutoPlayWordAudio,
       toggleDarkMode,
       toggleFontFamily,
       toggleBook,
@@ -625,6 +641,7 @@ function App() {
 function createArticleRows({
   activePageByRowId,
   animationsEnabled,
+  autoPlayWordAudio,
   books,
   bookMetadataEdits,
   fontFamily,
@@ -638,6 +655,7 @@ function createArticleRows({
   paginatedBooks,
   savedPageByBookId,
   toggleAnimations,
+  toggleAutoPlayWordAudio,
   toggleDarkMode,
   toggleFontFamily,
   toggleBook,
@@ -646,6 +664,7 @@ function createArticleRows({
 }: {
   activePageByRowId: Record<string, string>;
   animationsEnabled: boolean;
+  autoPlayWordAudio: boolean;
   books: BookSource[];
   bookMetadataEdits: Record<string, BookMetadataEdit>;
   fontFamily: FontFamily;
@@ -659,6 +678,7 @@ function createArticleRows({
   paginatedBooks: Record<string, PaginatedBook>;
   savedPageByBookId: Record<string, string>;
   toggleAnimations: () => void;
+  toggleAutoPlayWordAudio: () => void;
   toggleDarkMode: () => void;
   toggleFontFamily: () => void;
   toggleBook: (bookId: string) => void;
@@ -674,9 +694,11 @@ function createArticleRows({
           render: () => (
             <SettingsScreen
               animationsEnabled={animationsEnabled}
+              autoPlayWordAudio={autoPlayWordAudio}
               fontFamily={fontFamily}
               isDarkMode={isDarkMode}
               toggleAnimations={toggleAnimations}
+              toggleAutoPlayWordAudio={toggleAutoPlayWordAudio}
               toggleDarkMode={toggleDarkMode}
               toggleFontFamily={toggleFontFamily}
             />
@@ -731,7 +753,8 @@ function createArticleRows({
           loadedBooks[book.id],
           paginatedBooks[book.id]?.pages,
           savedPageByBookId[book.id],
-          jumpToBookPage
+          jumpToBookPage,
+          autoPlayWordAudio
         )
       )
   ];
@@ -744,7 +767,8 @@ function createBookRow(
   loadedBook?: LoadedBook,
   pages?: ReaderPage[],
   savedPageId?: string,
-  jumpToBookPage?: (bookId: string, pageId: string) => void
+  jumpToBookPage?: (bookId: string, pageId: string) => void,
+  autoPlayWordAudio?: boolean
 ): WorkspaceRow {
   const metadata = getBookMetadata(book, loadedBook, metadataEdit);
 
@@ -757,6 +781,7 @@ function createBookRow(
         render: () => (
           <ReaderScreen
             author={metadata.author}
+            autoPlayWordAudio={Boolean(autoPlayWordAudio)}
             isSyncingState={Boolean(isSyncingState)}
             languageCode={metadata.languageCode}
             pageNumber={index + 1}
@@ -798,16 +823,20 @@ function createBookRow(
 
 function SettingsScreen({
   animationsEnabled,
+  autoPlayWordAudio,
   fontFamily,
   isDarkMode,
   toggleAnimations,
+  toggleAutoPlayWordAudio,
   toggleDarkMode,
   toggleFontFamily
 }: {
   animationsEnabled: boolean;
+  autoPlayWordAudio: boolean;
   fontFamily: FontFamily;
   isDarkMode: boolean;
   toggleAnimations: () => void;
+  toggleAutoPlayWordAudio: () => void;
   toggleDarkMode: () => void;
   toggleFontFamily: () => void;
 }) {
@@ -848,6 +877,15 @@ function SettingsScreen({
               type="button"
             >
               Font {fontFamily === "serif" ? "serif" : "sans-serif"}
+            </button>
+
+            <button
+              aria-pressed={autoPlayWordAudio}
+              className="mx-auto block text-lg leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400"
+              onClick={toggleAutoPlayWordAudio}
+              type="button"
+            >
+              Word audio auto-play {autoPlayWordAudio ? "on" : "off"}
             </button>
           </div>
         </fieldset>
@@ -1324,6 +1362,7 @@ function LibraryScreen({
 
 function ReaderScreen({
   author,
+  autoPlayWordAudio,
   chapterTitle,
   isSyncingState,
   languageCode,
@@ -1334,6 +1373,7 @@ function ReaderScreen({
   title
 }: {
   author: string;
+  autoPlayWordAudio: boolean;
   chapterTitle?: string;
   isSyncingState: boolean;
   languageCode: string;
@@ -1370,8 +1410,13 @@ function ReaderScreen({
     const word = normalizeWord(rawWord);
     const anchorRect = event.currentTarget.getBoundingClientRect();
 
+    if (autoPlayWordAudio) {
+      speakWord(word, languageCode);
+    }
+
     setLookup({
       anchorRect,
+      languageCode,
       pinned: pinnedWords.has(word),
       status: "loading",
       word
@@ -1560,6 +1605,7 @@ function getDefaultPersistedAppState(): PersistedAppState {
     },
     activeRowId: "library",
     animationsEnabled: true,
+    autoPlayWordAudio: false,
     bookMetadataEdits: {},
     fontFamily: "serif",
     isDarkMode: false,
@@ -1656,6 +1702,10 @@ function normalizePersistedAppState(
       typeof state.animationsEnabled === "boolean"
         ? state.animationsEnabled
         : defaultState.animationsEnabled,
+    autoPlayWordAudio:
+      typeof state.autoPlayWordAudio === "boolean"
+        ? state.autoPlayWordAudio
+        : defaultState.autoPlayWordAudio,
     bookMetadataEdits,
     fontFamily:
       state.fontFamily === "sans" || state.fontFamily === "serif"
