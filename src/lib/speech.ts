@@ -19,9 +19,14 @@ const googleTranslateTtsProvider: SpeechProvider = {
 
     const audio = new Audio();
     audio.setAttribute("referrerpolicy", "no-referrer");
+    audio.addEventListener("error", () => {
+      console.error("Word audio failed to load", url.toString(), audio.error);
+    });
     audio.src = url.toString();
     currentAudio = audio;
-    audio.play().catch(() => {});
+    audio.play().catch((error: unknown) => {
+      console.error("Word audio failed to play", url.toString(), error);
+    });
   }
 };
 
