@@ -128,11 +128,11 @@ const LIBRARY_BOOKS_PER_PAGE = 5;
 const LONG_PRESS_MS = 550;
 const MAX_OPEN_BOOKS = 5;
 const LANGUAGE_CHOICES = [
+  { code: "und", flag: "🌐", label: "Other" },
   { code: "en", flag: "🇬🇧", label: "English" },
   { code: "es", flag: "🇪🇸", label: "Spanish" },
   { code: "fr", flag: "🇫🇷", label: "French" },
-  { code: "it", flag: "🇮🇹", label: "Italian" },
-  { code: "und", flag: "🌐", label: "Other" }
+  { code: "it", flag: "🇮🇹", label: "Italian" }
 ];
 
 function App() {
