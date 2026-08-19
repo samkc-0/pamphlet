@@ -103,7 +103,7 @@ type PageJump = {
   serial: number;
 };
 
-type SpanishVoiceRegion = "es" | "es-419";
+type SpanishVoiceRegion = "es" | "es-MX";
 
 type BookMetadataEdit = {
   author: string;
@@ -1173,65 +1173,53 @@ function BookMetadataDialog({
                 );
               })}
             </div>
-            {languageCode === "es" ? (
-              <p className="mt-2 text-center text-xs text-neutral-400 dark:text-neutral-500">
-                Hold 🇪🇸 to choose Spain or Latin America
-              </p>
-            ) : null}
           </label>
         </div>
 
         {isRegionPickerOpen ? (
           <div
-            aria-labelledby="spanish-region-title"
+            aria-label="Spanish voice"
             aria-modal="true"
             className="fixed inset-0 z-[60] flex items-center justify-center bg-white/75 px-5 backdrop-blur-sm dark:bg-neutral-950/75"
             onClick={() => setIsRegionPickerOpen(false)}
             role="dialog"
           >
             <div
-              className="w-full max-w-xs border border-neutral-300 bg-white px-6 py-6 text-center shadow-sm dark:border-neutral-700 dark:bg-neutral-950"
+              className="flex gap-3 border border-neutral-300 bg-white p-3 shadow-sm dark:border-neutral-700 dark:bg-neutral-950"
               onClick={(event) => event.stopPropagation()}
             >
-              <h3
-                className="text-sm text-neutral-500 dark:text-neutral-400"
-                id="spanish-region-title"
+              <button
+                aria-label="Spain"
+                aria-pressed={spanishVoiceRegion === "es"}
+                className={`grid h-14 w-14 place-items-center border text-3xl outline-none transition-colors ${
+                  spanishVoiceRegion === "es"
+                    ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
+                    : "border-neutral-300 dark:border-neutral-700"
+                }`}
+                onClick={() => {
+                  setSpanishVoiceRegion("es");
+                  setIsRegionPickerOpen(false);
+                }}
+                type="button"
               >
-                Spanish voice
-              </h3>
-
-              <div className="mt-4 space-y-2">
-                <button
-                  aria-pressed={spanishVoiceRegion === "es"}
-                  className={`block w-full border px-4 py-2 text-lg outline-none transition-colors ${
-                    spanishVoiceRegion === "es"
-                      ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
-                      : "border-neutral-300 dark:border-neutral-700"
-                  }`}
-                  onClick={() => {
-                    setSpanishVoiceRegion("es");
-                    setIsRegionPickerOpen(false);
-                  }}
-                  type="button"
-                >
-                  🇪🇸 Spain
-                </button>
-                <button
-                  aria-pressed={spanishVoiceRegion === "es-419"}
-                  className={`block w-full border px-4 py-2 text-lg outline-none transition-colors ${
-                    spanishVoiceRegion === "es-419"
-                      ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
-                      : "border-neutral-300 dark:border-neutral-700"
-                  }`}
-                  onClick={() => {
-                    setSpanishVoiceRegion("es-419");
-                    setIsRegionPickerOpen(false);
-                  }}
-                  type="button"
-                >
-                  🌎 Latin America
-                </button>
-              </div>
+                🇪🇸
+              </button>
+              <button
+                aria-label="Latin America"
+                aria-pressed={spanishVoiceRegion === "es-MX"}
+                className={`grid h-14 w-14 place-items-center border text-3xl outline-none transition-colors ${
+                  spanishVoiceRegion === "es-MX"
+                    ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
+                    : "border-neutral-300 dark:border-neutral-700"
+                }`}
+                onClick={() => {
+                  setSpanishVoiceRegion("es-MX");
+                  setIsRegionPickerOpen(false);
+                }}
+                type="button"
+              >
+                🇲🇽
+              </button>
             </div>
           </div>
         ) : null}
@@ -1887,7 +1875,7 @@ function getPersistedBookMetadataEdits(value: unknown) {
         author,
         languageCode: getSupportedLanguageCode(languageCode),
         spanishVoiceRegion:
-          metadata.spanishVoiceRegion === "es-419" ? "es-419" : "es",
+          metadata.spanishVoiceRegion === "es-MX" ? "es-MX" : "es",
         title
       };
     }
