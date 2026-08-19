@@ -17,7 +17,9 @@ const googleTranslateTtsProvider: SpeechProvider = {
     url.searchParams.set("tl", languageCode);
     url.searchParams.set("q", word);
 
-    const audio = new Audio(url.toString());
+    const audio = new Audio();
+    audio.setAttribute("referrerpolicy", "no-referrer");
+    audio.src = url.toString();
     currentAudio = audio;
     audio.play().catch(() => {});
   }
