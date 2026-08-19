@@ -144,11 +144,9 @@ function detectLanguage(chapters: EpubSection[]) {
     .join(" ")
     .slice(0, 4000);
 
-  const detected = franc(sampleText, {
-    only: Object.keys(DETECTABLE_LANGUAGES)
-  });
+  const detected = franc(sampleText);
 
-  return DETECTABLE_LANGUAGES[detected];
+  return DETECTABLE_LANGUAGES[detected] ?? "und";
 }
 
 function getMetadataText(document: Document, localName: string) {

@@ -131,7 +131,8 @@ const LANGUAGE_CHOICES = [
   { code: "en", flag: "🇬🇧", label: "English" },
   { code: "es", flag: "🇪🇸", label: "Spanish" },
   { code: "fr", flag: "🇫🇷", label: "French" },
-  { code: "it", flag: "🇮🇹", label: "Italian" }
+  { code: "it", flag: "🇮🇹", label: "Italian" },
+  { code: "und", flag: "🌐", label: "Other" }
 ];
 
 function App() {
@@ -1834,7 +1835,7 @@ function getSupportedLanguageCode(languageCode: string) {
     (language) => language.code === normalizedLanguageCode
   )
     ? normalizedLanguageCode
-    : LANGUAGE_CHOICES[0].code;
+    : "und";
 }
 
 function getViewportKey() {
