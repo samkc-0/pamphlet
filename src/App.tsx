@@ -103,7 +103,7 @@ type PageJump = {
   serial: number;
 };
 
-type SpanishVoiceRegion = "es" | "es-MX";
+type SpanishVoiceRegion = "es" | "es-AR" | "es-MX";
 
 type BookMetadataEdit = {
   author: string;
@@ -122,6 +122,7 @@ type PersistedAppState = {
   bookMetadataEdits: Record<string, BookMetadataEdit>;
   fontFamily: FontFamily;
   isDarkMode: boolean;
+  lastSpanishVoiceRegion: SpanishVoiceRegion;
   openBookIds: string[];
   savedPageByBookId: Record<string, string>;
   version: 1;
@@ -136,6 +137,15 @@ const LANGUAGE_CHOICES = [
   { code: "es", flag: "🇪🇸", label: "Spanish" },
   { code: "fr", flag: "🇫🇷", label: "French" },
   { code: "it", flag: "🇮🇹", label: "Italian" }
+];
+const SPANISH_VOICE_REGIONS: {
+  code: SpanishVoiceRegion;
+  flag: string;
+  label: string;
+}[] = [
+  { code: "es-AR", flag: "🇦🇷", label: "Argentina" },
+  { code: "es", flag: "🇪🇸", label: "Spain" },
+  { code: "es-MX", flag: "🇲🇽", label: "Mexico" }
 ];
 
 function App() {
@@ -159,6 +169,10 @@ function App() {
   const [autoPlayWordAudio, setAutoPlayWordAudio] = useState(
     () => defaultPersistedState.autoPlayWordAudio
   );
+  const [lastSpanishVoiceRegion, setLastSpanishVoiceRegion] =
+    useState<SpanishVoiceRegion>(
+      () => defaultPersistedState.lastSpanishVoiceRegion
+    );
   const [bookMetadataEdits, setBookMetadataEdits] = useState<
     Record<string, BookMetadataEdit>
   >(() => defaultPersistedState.bookMetadataEdits);
@@ -199,6 +213,7 @@ function App() {
       setBookMetadataEdits(persistedState.bookMetadataEdits);
       setFontFamily(persistedState.fontFamily);
       setIsDarkMode(persistedState.isDarkMode);
+      setLastSpanishVoiceRegion(persistedState.lastSpanishVoiceRegion);
       setOpenBookIds(persistedState.openBookIds);
       setSavedPageByBookId(persistedState.savedPageByBookId);
       setIsStateLoaded(true);
@@ -353,6 +368,7 @@ function App() {
       bookMetadataEdits,
       fontFamily,
       isDarkMode,
+      lastSpanishVoiceRegion,
       openBookIds,
       savedPageByBookId,
       version: 1
@@ -380,6 +396,7 @@ function App() {
     fontFamily,
     isStateLoaded,
     isDarkMode,
+    lastSpanishVoiceRegion,
     openBookIds,
     savedPageByBookId
   ]);
@@ -485,6 +502,7 @@ function App() {
         ...current,
         [bookId]: metadata
       }));
+      setLastSpanishVoiceRegion(metadata.spanishVoiceRegion);
       setEditingBookId(null);
     },
     []
@@ -513,7 +531,8 @@ function App() {
     ? getBookMetadata(
         editingBook,
         editingLoadedBook,
-        bookMetadataEdits[editingBook.id]
+        bookMetadataEdits[editingBook.id],
+        lastSpanishVoiceRegion
       )
     : undefined;
   const isBookLoading = openBookIds.some((bookId) => {
@@ -537,6 +556,7 @@ function App() {
         isDarkMode,
         isSyncingState,
         isUploadingBooks,
+        lastSpanishVoiceRegion,
         loadedBooks,
         openBookIds,
         activePageByRowId,
@@ -563,6 +583,7 @@ function App() {
       isSyncingState,
       isUploadingBooks,
       jumpToBookPage,
+      lastSpanishVoiceRegion,
       loadedBooks,
       openBookIds,
       paginatedBooks,
@@ -654,6 +675,7 @@ function createArticleRows({
   isSyncingState,
   isUploadingBooks,
   jumpToBookPage,
+  lastSpanishVoiceRegion,
   loadedBooks,
   openBookIds,
   openBookSettings,
@@ -677,6 +699,7 @@ function createArticleRows({
   isSyncingState: boolean;
   isUploadingBooks: boolean;
   jumpToBookPage: (bookId: string, pageId: string) => void;
+  lastSpanishVoiceRegion: SpanishVoiceRegion;
   loadedBooks: Record<string, LoadedBook>;
   openBookIds: string[];
   openBookSettings: (bookId: string) => void;
@@ -735,6 +758,7 @@ function createArticleRows({
                 pageTotal={pages.length}
                 activePageByRowId={activePageByRowId}
                 bookMetadataEdits={bookMetadataEdits}
+                lastSpanishVoiceRegion={lastSpanishVoiceRegion}
                 loadedBooks={loadedBooks}
                 openBookSettings={openBookSettings}
                 openBookIds={openBookIds}
@@ -759,7 +783,8 @@ function createArticleRows({
           paginatedBooks[book.id]?.pages,
           savedPageByBookId[book.id],
           jumpToBookPage,
-          autoPlayWordAudio
+          autoPlayWordAudio,
+          lastSpanishVoiceRegion
         )
       )
   ];
@@ -773,9 +798,15 @@ function createBookRow(
   pages?: ReaderPage[],
   savedPageId?: string,
   jumpToBookPage?: (bookId: string, pageId: string) => void,
-  autoPlayWordAudio?: boolean
+  autoPlayWordAudio?: boolean,
+  lastSpanishVoiceRegion?: SpanishVoiceRegion
 ): WorkspaceRow {
-  const metadata = getBookMetadata(book, loadedBook, metadataEdit);
+  const metadata = getBookMetadata(
+    book,
+    loadedBook,
+    metadataEdit,
+    lastSpanishVoiceRegion
+  );
 
   if (pages?.length) {
     return {
@@ -1168,7 +1199,14 @@ function BookMetadataDialog({
                     role="radio"
                     type="button"
                   >
-                    <span aria-hidden="true">{language.flag}</span>
+                    {language.code === "es" ? (
+                      <SpanishRegionReel
+                        interactive={false}
+                        value={spanishVoiceRegion}
+                      />
+                    ) : (
+                      <span aria-hidden="true">{language.flag}</span>
+                    )}
                   </button>
                 );
               })}
@@ -1185,41 +1223,14 @@ function BookMetadataDialog({
             role="dialog"
           >
             <div
-              className="flex gap-3 border border-neutral-300 bg-white p-3 shadow-sm dark:border-neutral-700 dark:bg-neutral-950"
+              className="border border-neutral-300 bg-white p-2 shadow-sm dark:border-neutral-700 dark:bg-neutral-950"
               onClick={(event) => event.stopPropagation()}
             >
-              <button
-                aria-label="Spain"
-                aria-pressed={spanishVoiceRegion === "es"}
-                className={`grid h-14 w-14 place-items-center border text-3xl outline-none transition-colors ${
-                  spanishVoiceRegion === "es"
-                    ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
-                    : "border-neutral-300 dark:border-neutral-700"
-                }`}
-                onClick={() => {
-                  setSpanishVoiceRegion("es");
-                  setIsRegionPickerOpen(false);
-                }}
-                type="button"
-              >
-                🇪🇸
-              </button>
-              <button
-                aria-label="Latin America"
-                aria-pressed={spanishVoiceRegion === "es-MX"}
-                className={`grid h-14 w-14 place-items-center border text-3xl outline-none transition-colors ${
-                  spanishVoiceRegion === "es-MX"
-                    ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
-                    : "border-neutral-300 dark:border-neutral-700"
-                }`}
-                onClick={() => {
-                  setSpanishVoiceRegion("es-MX");
-                  setIsRegionPickerOpen(false);
-                }}
-                type="button"
-              >
-                🇲🇽
-              </button>
+              <SpanishRegionReel
+                interactive
+                onChange={setSpanishVoiceRegion}
+                value={spanishVoiceRegion}
+              />
             </div>
           </div>
         ) : null}
@@ -1249,6 +1260,106 @@ function BookMetadataDialog({
           </button>
         </div>
       </form>
+    </div>
+  );
+}
+
+function SpanishRegionReel({
+  interactive,
+  onChange,
+  value
+}: {
+  interactive: boolean;
+  onChange?: (region: SpanishVoiceRegion) => void;
+  value: SpanishVoiceRegion;
+}) {
+  const rowHeight = interactive ? 56 : 28;
+  const peek = interactive ? 14 : 8;
+  const windowHeight = rowHeight + peek * 2;
+  const selectedIndex = SPANISH_VOICE_REGIONS.findIndex(
+    (region) => region.code === value
+  );
+  const baseOffset = peek - selectedIndex * rowHeight;
+
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragOffset, setDragOffset] = useState(0);
+  const dragStartY = useRef(0);
+
+  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (!interactive) return;
+
+    dragStartY.current = event.clientY;
+    setDragOffset(0);
+    setIsDragging(true);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (!interactive || !isDragging) return;
+
+    const delta = event.clientY - dragStartY.current;
+    const maxOffset = selectedIndex * rowHeight;
+    const minOffset = -(SPANISH_VOICE_REGIONS.length - 1 - selectedIndex) * rowHeight;
+
+    setDragOffset(clampNumber(delta, minOffset, maxOffset));
+  };
+
+  const handlePointerUp = () => {
+    if (!interactive || !isDragging) return;
+
+    const nextIndex = clampNumber(
+      selectedIndex - Math.round(dragOffset / rowHeight),
+      0,
+      SPANISH_VOICE_REGIONS.length - 1
+    );
+
+    setIsDragging(false);
+    setDragOffset(0);
+
+    const nextRegion = SPANISH_VOICE_REGIONS[nextIndex];
+    if (nextRegion.code !== value) {
+      onChange?.(nextRegion.code);
+    }
+  };
+
+  return (
+    <div
+      aria-label={interactive ? "Spanish voice region" : undefined}
+      className="relative overflow-hidden"
+      onPointerCancel={handlePointerUp}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+      role={interactive ? "slider" : undefined}
+      style={{
+        cursor: interactive ? "grab" : undefined,
+        height: windowHeight,
+        touchAction: interactive ? "none" : undefined,
+        width: rowHeight
+      }}
+    >
+      <div
+        className="absolute left-0 top-0 w-full"
+        style={{
+          transform: `translateY(${baseOffset + dragOffset}px)`,
+          transition: isDragging ? "none" : "transform 200ms ease-out"
+        }}
+      >
+        {SPANISH_VOICE_REGIONS.map((region) => (
+          <div
+            className="grid place-items-center"
+            key={region.code}
+            style={{ height: rowHeight }}
+          >
+            <span
+              aria-hidden="true"
+              className={interactive ? "text-4xl" : "text-lg"}
+            >
+              {region.flag}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1294,6 +1405,7 @@ function LibraryScreen({
   activePageByRowId,
   bookMetadataEdits,
   books,
+  lastSpanishVoiceRegion,
   loadedBooks,
   openBookSettings,
   openBookIds,
@@ -1306,6 +1418,7 @@ function LibraryScreen({
   activePageByRowId: Record<string, string>;
   bookMetadataEdits: Record<string, BookMetadataEdit>;
   books: BookSource[];
+  lastSpanishVoiceRegion: SpanishVoiceRegion;
   loadedBooks: Record<string, LoadedBook>;
   openBookSettings: (bookId: string) => void;
   openBookIds: string[];
@@ -1401,7 +1514,8 @@ function LibraryScreen({
             const metadata = getBookMetadata(
               book,
               loadedBook,
-              bookMetadataEdits[book.id]
+              bookMetadataEdits[book.id],
+              lastSpanishVoiceRegion
             );
             const pages = paginatedBooks[book.id]?.pages ?? [];
             const activePageId =
@@ -1725,6 +1839,7 @@ function getDefaultPersistedAppState(): PersistedAppState {
     bookMetadataEdits: {},
     fontFamily: "serif",
     isDarkMode: false,
+    lastSpanishVoiceRegion: "es",
     openBookIds: [],
     savedPageByBookId: {},
     version: 1
@@ -1831,10 +1946,17 @@ function normalizePersistedAppState(
       typeof state.isDarkMode === "boolean"
         ? state.isDarkMode
         : defaultState.isDarkMode,
+    lastSpanishVoiceRegion: isSpanishVoiceRegion(state.lastSpanishVoiceRegion)
+      ? state.lastSpanishVoiceRegion
+      : defaultState.lastSpanishVoiceRegion,
     openBookIds,
     savedPageByBookId,
     version: 1
   };
+}
+
+function isSpanishVoiceRegion(value: unknown): value is SpanishVoiceRegion {
+  return value === "es" || value === "es-AR" || value === "es-MX";
 }
 
 function getPersistedOpenBookIds(value: unknown) {
@@ -1874,8 +1996,9 @@ function getPersistedBookMetadataEdits(value: unknown) {
       edits[bookId] = {
         author,
         languageCode: getSupportedLanguageCode(languageCode),
-        spanishVoiceRegion:
-          metadata.spanishVoiceRegion === "es-MX" ? "es-MX" : "es",
+        spanishVoiceRegion: isSpanishVoiceRegion(metadata.spanishVoiceRegion)
+          ? metadata.spanishVoiceRegion
+          : "es",
         title
       };
     }
@@ -1922,7 +2045,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function getBookMetadata(
   book: BookSource,
   loadedBook?: LoadedBook,
-  metadataEdit?: BookMetadataEdit
+  metadataEdit?: BookMetadataEdit,
+  lastSpanishVoiceRegion: SpanishVoiceRegion = "es"
 ): BookMetadataEdit {
   return {
     author:
@@ -1935,7 +2059,7 @@ function getBookMetadata(
         book.language ||
         "und"
     ),
-    spanishVoiceRegion: metadataEdit?.spanishVoiceRegion ?? "es",
+    spanishVoiceRegion: metadataEdit?.spanishVoiceRegion ?? lastSpanishVoiceRegion,
     title:
       metadataEdit?.title.trim() || loadedBook?.data?.title?.trim() || book.title
   };
