@@ -1687,6 +1687,8 @@ function ReaderScreen({
   ) => {
     if (!isSelecting.current) return;
 
+    event.stopPropagation();
+
     const hovered = document.elementFromPoint(event.clientX, event.clientY);
     const tokenElement = hovered?.closest<HTMLElement>("[data-token-index]");
     if (!tokenElement) return;
@@ -1707,6 +1709,7 @@ function ReaderScreen({
 
     if (!isSelecting.current) return;
 
+    event.stopPropagation();
     isSelecting.current = false;
 
     if (!selectionRange) return;
@@ -1723,10 +1726,13 @@ function ReaderScreen({
     }
   };
 
-  const handleSelectionPointerCancel = () => {
+  const handleSelectionPointerCancel = (
+    event: PointerEvent<HTMLButtonElement>
+  ) => {
     clearSentenceLongPress();
 
     if (isSelecting.current) {
+      event.stopPropagation();
       isSelecting.current = false;
       setSelectionRange(null);
     }
