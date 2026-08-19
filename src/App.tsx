@@ -1039,8 +1039,6 @@ function BookMetadataDialog({
     metadata.spanishVoiceRegion
   );
   const [title, setTitle] = useState(metadata.title);
-  const longPressTimer = useRef<number | null>(null);
-  const suppressNextLanguageClick = useRef(false);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1053,14 +1051,6 @@ function BookMetadataDialog({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  useEffect(() => {
-    return () => {
-      if (longPressTimer.current) {
-        window.clearTimeout(longPressTimer.current);
-      }
-    };
-  }, []);
-
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -1070,43 +1060,6 @@ function BookMetadataDialog({
       spanishVoiceRegion,
       title: title.trim()
     });
-  };
-
-  const startLanguageLongPress = (
-    languageOptionCode: string,
-    event: PointerEvent<HTMLElement>
-  ) => {
-    if (languageOptionCode !== "es") return;
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-
-    if (longPressTimer.current) {
-      window.clearTimeout(longPressTimer.current);
-    }
-
-    suppressNextLanguageClick.current = false;
-    longPressTimer.current = window.setTimeout(() => {
-      suppressNextLanguageClick.current = true;
-      setIsRegionPickerOpen(true);
-      longPressTimer.current = null;
-    }, LONG_PRESS_MS);
-  };
-
-  const clearLanguageLongPress = () => {
-    if (longPressTimer.current) {
-      window.clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-  };
-
-  const handleLanguageClick = (languageOptionCode: string) => {
-    clearLanguageLongPress();
-
-    if (suppressNextLanguageClick.current) {
-      suppressNextLanguageClick.current = false;
-      return;
-    }
-
-    setLanguageCode(languageOptionCode);
   };
 
   const handleDelete = () => {
@@ -1179,6 +1132,19 @@ function BookMetadataDialog({
               {LANGUAGE_CHOICES.map((language) => {
                 const isSelected = language.code === languageCode;
 
+                if (language.code === "es") {
+                  return (
+                    <SpanishRegionReel
+                      isSelected={isSelected}
+                      key="es"
+                      onLongPress={() => setIsRegionPickerOpen(true)}
+                      onRegionChange={setSpanishVoiceRegion}
+                      onSelect={() => setLanguageCode("es")}
+                      value={spanishVoiceRegion}
+                    />
+                  );
+                }
+
                 return (
                   <button
                     aria-checked={isSelected}
@@ -1189,24 +1155,11 @@ function BookMetadataDialog({
                         : "border-neutral-300 dark:border-neutral-700"
                     } focus-visible:border-neutral-950 dark:focus-visible:border-neutral-100`}
                     key={language.code}
-                    onClick={() => handleLanguageClick(language.code)}
-                    onPointerCancel={clearLanguageLongPress}
-                    onPointerDown={(event) =>
-                      startLanguageLongPress(language.code, event)
-                    }
-                    onPointerLeave={clearLanguageLongPress}
-                    onPointerUp={clearLanguageLongPress}
+                    onClick={() => setLanguageCode(language.code)}
                     role="radio"
                     type="button"
                   >
-                    {language.code === "es" ? (
-                      <SpanishRegionReel
-                        interactive={false}
-                        value={spanishVoiceRegion}
-                      />
-                    ) : (
-                      <span aria-hidden="true">{language.flag}</span>
-                    )}
+                    <span aria-hidden="true">{language.flag}</span>
                   </button>
                 );
               })}
@@ -1223,14 +1176,28 @@ function BookMetadataDialog({
             role="dialog"
           >
             <div
-              className="border border-neutral-300 bg-white p-2 shadow-sm dark:border-neutral-700 dark:bg-neutral-950"
+              className="flex gap-3 border border-neutral-300 bg-white p-3 shadow-sm dark:border-neutral-700 dark:bg-neutral-950"
               onClick={(event) => event.stopPropagation()}
             >
-              <SpanishRegionReel
-                interactive
-                onChange={setSpanishVoiceRegion}
-                value={spanishVoiceRegion}
-              />
+              {SPANISH_VOICE_REGIONS.map((region) => (
+                <button
+                  aria-label={region.label}
+                  aria-pressed={spanishVoiceRegion === region.code}
+                  className={`grid h-14 w-14 place-items-center border text-3xl outline-none transition-colors ${
+                    spanishVoiceRegion === region.code
+                      ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
+                      : "border-neutral-300 dark:border-neutral-700"
+                  }`}
+                  key={region.code}
+                  onClick={() => {
+                    setSpanishVoiceRegion(region.code);
+                    setIsRegionPickerOpen(false);
+                  }}
+                  type="button"
+                >
+                  {region.flag}
+                </button>
+              ))}
             </div>
           </div>
         ) : null}
@@ -1264,79 +1231,125 @@ function BookMetadataDialog({
   );
 }
 
+const SPANISH_REEL_DRAG_THRESHOLD = 6;
+const SPANISH_REEL_ROW_HEIGHT = 32;
+const SPANISH_REEL_PEEK = 8;
+
 function SpanishRegionReel({
-  interactive,
-  onChange,
+  isSelected,
+  onLongPress,
+  onRegionChange,
+  onSelect,
   value
 }: {
-  interactive: boolean;
-  onChange?: (region: SpanishVoiceRegion) => void;
+  isSelected: boolean;
+  onLongPress: () => void;
+  onRegionChange: (region: SpanishVoiceRegion) => void;
+  onSelect: () => void;
   value: SpanishVoiceRegion;
 }) {
-  const rowHeight = interactive ? 56 : 28;
-  const peek = interactive ? 14 : 8;
-  const windowHeight = rowHeight + peek * 2;
   const selectedIndex = SPANISH_VOICE_REGIONS.findIndex(
     (region) => region.code === value
   );
-  const baseOffset = peek - selectedIndex * rowHeight;
+  const baseOffset = SPANISH_REEL_PEEK - selectedIndex * SPANISH_REEL_ROW_HEIGHT;
 
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
-  const dragStartY = useRef(0);
+  const pointerStartY = useRef(0);
+  const dragged = useRef(false);
+  const longPressTimer = useRef<number | null>(null);
+  const longPressFired = useRef(false);
 
-  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
-    if (!interactive) return;
-
-    dragStartY.current = event.clientY;
-    setDragOffset(0);
-    setIsDragging(true);
-    event.currentTarget.setPointerCapture(event.pointerId);
+  const clearLongPressTimer = () => {
+    if (longPressTimer.current) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
   };
 
-  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
-    if (!interactive || !isDragging) return;
+  const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
 
-    const delta = event.clientY - dragStartY.current;
-    const maxOffset = selectedIndex * rowHeight;
-    const minOffset = -(SPANISH_VOICE_REGIONS.length - 1 - selectedIndex) * rowHeight;
+    pointerStartY.current = event.clientY;
+    dragged.current = false;
+    longPressFired.current = false;
+    setDragOffset(0);
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    clearLongPressTimer();
+    longPressTimer.current = window.setTimeout(() => {
+      longPressFired.current = true;
+      longPressTimer.current = null;
+      onLongPress();
+    }, LONG_PRESS_MS);
+  };
+
+  const handlePointerMove = (event: PointerEvent<HTMLButtonElement>) => {
+    if (longPressFired.current) return;
+
+    const delta = event.clientY - pointerStartY.current;
+
+    if (!dragged.current) {
+      if (Math.abs(delta) < SPANISH_REEL_DRAG_THRESHOLD) return;
+
+      dragged.current = true;
+      setIsDragging(true);
+      clearLongPressTimer();
+    }
+
+    const maxOffset = selectedIndex * SPANISH_REEL_ROW_HEIGHT;
+    const minOffset =
+      -(SPANISH_VOICE_REGIONS.length - 1 - selectedIndex) *
+      SPANISH_REEL_ROW_HEIGHT;
 
     setDragOffset(clampNumber(delta, minOffset, maxOffset));
   };
 
   const handlePointerUp = () => {
-    if (!interactive || !isDragging) return;
+    clearLongPressTimer();
 
-    const nextIndex = clampNumber(
-      selectedIndex - Math.round(dragOffset / rowHeight),
-      0,
-      SPANISH_VOICE_REGIONS.length - 1
-    );
+    if (!longPressFired.current) {
+      if (dragged.current) {
+        const nextIndex = clampNumber(
+          selectedIndex - Math.round(dragOffset / SPANISH_REEL_ROW_HEIGHT),
+          0,
+          SPANISH_VOICE_REGIONS.length - 1
+        );
+        const nextRegion = SPANISH_VOICE_REGIONS[nextIndex];
 
+        if (nextRegion.code !== value) {
+          onRegionChange(nextRegion.code);
+        }
+
+        if (!isSelected) {
+          onSelect();
+        }
+      } else {
+        onSelect();
+      }
+    }
+
+    dragged.current = false;
     setIsDragging(false);
     setDragOffset(0);
-
-    const nextRegion = SPANISH_VOICE_REGIONS[nextIndex];
-    if (nextRegion.code !== value) {
-      onChange?.(nextRegion.code);
-    }
   };
 
   return (
-    <div
-      aria-label={interactive ? "Spanish voice region" : undefined}
-      className="relative overflow-hidden"
+    <button
+      aria-checked={isSelected}
+      aria-label="Spanish"
+      className={`relative grid h-12 w-12 place-items-center overflow-hidden border outline-none transition-colors ${
+        isSelected
+          ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
+          : "border-neutral-300 dark:border-neutral-700"
+      } focus-visible:border-neutral-950 dark:focus-visible:border-neutral-100`}
       onPointerCancel={handlePointerUp}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      role={interactive ? "slider" : undefined}
-      style={{
-        cursor: interactive ? "grab" : undefined,
-        height: windowHeight,
-        touchAction: interactive ? "none" : undefined,
-        width: rowHeight
-      }}
+      role="radio"
+      style={{ touchAction: "none" }}
+      type="button"
     >
       <div
         className="absolute left-0 top-0 w-full"
@@ -1349,18 +1362,15 @@ function SpanishRegionReel({
           <div
             className="grid place-items-center"
             key={region.code}
-            style={{ height: rowHeight }}
+            style={{ height: SPANISH_REEL_ROW_HEIGHT }}
           >
-            <span
-              aria-hidden="true"
-              className={interactive ? "text-4xl" : "text-lg"}
-            >
+            <span aria-hidden="true" className="text-lg">
               {region.flag}
             </span>
           </div>
         ))}
       </div>
-    </div>
+    </button>
   );
 }
 
