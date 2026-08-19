@@ -1,4 +1,4 @@
-import { Circle, Volume2 } from "lucide-react";
+import { Circle, Volume2, VolumeX } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import type { WordLookupResult } from "@/lib/dictionary";
@@ -72,13 +72,25 @@ export function WordLookupPopup({
           </span>
           <div className="flex shrink-0 items-center gap-1">
             <button
-              aria-label="Listen"
-              className="rounded-full p-1 text-neutral-500 disabled:opacity-30 dark:text-neutral-400"
+              aria-label={
+                lookup.languageCode === "und"
+                  ? "Listen (unavailable for this language)"
+                  : "Listen"
+              }
+              className={`rounded-full p-1 ${
+                lookup.languageCode === "und"
+                  ? "text-neutral-300 dark:text-neutral-600"
+                  : "text-neutral-500 dark:text-neutral-400"
+              }`}
               disabled={lookup.languageCode === "und"}
               onClick={() => speakWord(lookup.word, lookup.languageCode)}
               type="button"
             >
-              <Volume2 className="h-4 w-4" />
+              {lookup.languageCode === "und" ? (
+                <VolumeX className="h-4 w-4" />
+              ) : (
+                <Volume2 className="h-4 w-4" />
+              )}
             </button>
             <button
               aria-label={lookup.pinned ? "Unpin word" : "Pin word"}
