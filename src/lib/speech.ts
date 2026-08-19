@@ -14,7 +14,7 @@ const googleTranslateTtsProvider: SpeechProvider = {
     const url = new URL("https://translate.google.com/translate_tts");
     url.searchParams.set("ie", "UTF-8");
     url.searchParams.set("client", "tw-ob");
-    url.searchParams.set("tl", languageCode);
+    url.searchParams.set("tl", languageCode === "und" ? "en" : languageCode);
     url.searchParams.set("q", word);
 
     const audio = new Audio();
