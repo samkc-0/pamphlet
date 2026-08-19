@@ -1232,8 +1232,13 @@ function BookMetadataDialog({
 }
 
 const SPANISH_REEL_DRAG_THRESHOLD = 6;
-const SPANISH_REEL_ROW_HEIGHT = 32;
-const SPANISH_REEL_PEEK = 8;
+const SPANISH_REEL_ROW_HEIGHT = 24;
+const SPANISH_REEL_PEEK = 12;
+const SPANISH_REEL_LOOPED_REGIONS = [
+  ...SPANISH_VOICE_REGIONS,
+  ...SPANISH_VOICE_REGIONS,
+  ...SPANISH_VOICE_REGIONS
+];
 
 function SpanishRegionReel({
   isSelected,
@@ -1251,7 +1256,8 @@ function SpanishRegionReel({
   const selectedIndex = SPANISH_VOICE_REGIONS.findIndex(
     (region) => region.code === value
   );
-  const baseOffset = SPANISH_REEL_PEEK - selectedIndex * SPANISH_REEL_ROW_HEIGHT;
+  const centerIndex = selectedIndex + SPANISH_VOICE_REGIONS.length;
+  const baseOffset = SPANISH_REEL_PEEK - centerIndex * SPANISH_REEL_ROW_HEIGHT;
 
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
@@ -1297,12 +1303,9 @@ function SpanishRegionReel({
       clearLongPressTimer();
     }
 
-    const maxOffset = selectedIndex * SPANISH_REEL_ROW_HEIGHT;
-    const minOffset =
-      -(SPANISH_VOICE_REGIONS.length - 1 - selectedIndex) *
-      SPANISH_REEL_ROW_HEIGHT;
+    const lapOffset = SPANISH_VOICE_REGIONS.length * SPANISH_REEL_ROW_HEIGHT;
 
-    setDragOffset(clampNumber(delta, minOffset, maxOffset));
+    setDragOffset(clampNumber(delta, -lapOffset, lapOffset));
   };
 
   const handlePointerUp = () => {
@@ -1310,11 +1313,10 @@ function SpanishRegionReel({
 
     if (!longPressFired.current) {
       if (dragged.current) {
-        const nextIndex = clampNumber(
-          selectedIndex - Math.round(dragOffset / SPANISH_REEL_ROW_HEIGHT),
-          0,
-          SPANISH_VOICE_REGIONS.length - 1
-        );
+        const regionCount = SPANISH_VOICE_REGIONS.length;
+        const rawIndex =
+          selectedIndex - Math.round(dragOffset / SPANISH_REEL_ROW_HEIGHT);
+        const nextIndex = ((rawIndex % regionCount) + regionCount) % regionCount;
         const nextRegion = SPANISH_VOICE_REGIONS[nextIndex];
 
         if (nextRegion.code !== value) {
@@ -1358,13 +1360,13 @@ function SpanishRegionReel({
           transition: isDragging ? "none" : "transform 200ms ease-out"
         }}
       >
-        {SPANISH_VOICE_REGIONS.map((region) => (
+        {SPANISH_REEL_LOOPED_REGIONS.map((region, index) => (
           <div
-            className="grid place-items-center"
-            key={region.code}
+            className="grid place-items-center leading-none"
+            key={`${region.code}-${index}`}
             style={{ height: SPANISH_REEL_ROW_HEIGHT }}
           >
-            <span aria-hidden="true" className="text-lg">
+            <span aria-hidden="true" className="text-xl">
               {region.flag}
             </span>
           </div>
