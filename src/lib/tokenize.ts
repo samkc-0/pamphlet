@@ -3,7 +3,19 @@ export type TextToken = {
   value: string;
 };
 
+export type OffsetToken = TextToken & {
+  end: number;
+  start: number;
+};
+
+export type SentenceSpan = {
+  end: number;
+  start: number;
+  text: string;
+};
+
 const WORD_PATTERN = /[A-Za-zÀ-ɏͰ-ϿЀ-ӿ'’]+/g;
+const SENTENCE_PATTERN = /[^.!?]*[.!?]+(?:['")\]]*)|[^.!?]+$/g;
 
 export function tokenizeParagraph(text: string): TextToken[] {
   const tokens: TextToken[] = [];
@@ -25,6 +37,29 @@ export function tokenizeParagraph(text: string): TextToken[] {
   }
 
   return tokens;
+}
+
+export function tokenizeParagraphWithOffsets(text: string): OffsetToken[] {
+  let offset = 0;
+
+  return tokenizeParagraph(text).map((token) => {
+    const start = offset;
+    offset += token.value.length;
+    return { ...token, end: offset, start };
+  });
+}
+
+export function getSentenceSpans(text: string): SentenceSpan[] {
+  const spans: SentenceSpan[] = [];
+
+  for (const match of text.matchAll(SENTENCE_PATTERN)) {
+    if (!match[0].trim()) continue;
+
+    const start = match.index ?? 0;
+    spans.push({ end: start + match[0].length, start, text: match[0].trim() });
+  }
+
+  return spans;
 }
 
 export function normalizeWord(word: string) {

@@ -4,6 +4,10 @@ import { Settings } from "lucide-react";
 
 import type { BookSource } from "@/books";
 import {
+  SentenceLookupPopup,
+  type SentenceLookupState
+} from "@/components/sentence-lookup-popup";
+import {
   SwipeWorkspace,
   type WorkspaceRow
 } from "@/components/swipe-workspace";
@@ -21,7 +25,7 @@ import {
   readBookData,
   saveUploadedBook
 } from "@/lib/books-db";
-import { lookupWord } from "@/lib/dictionary";
+import { lookupWord, translateText } from "@/lib/dictionary";
 import { loadEpubFromArrayBuffer, type EpubBook } from "@/lib/epub";
 import {
   readCachedPagination,
@@ -30,7 +34,11 @@ import {
 import { paginateBookByLayout, type ReaderPage } from "@/lib/pagination";
 import { loadPinnedWords, setWordPinned } from "@/lib/pinned-words";
 import { speakWord } from "@/lib/speech";
-import { normalizeWord, tokenizeParagraph } from "@/lib/tokenize";
+import {
+  getSentenceSpans,
+  normalizeWord,
+  tokenizeParagraphWithOffsets
+} from "@/lib/tokenize";
 
 const ROW_MARKERS = [
   "⓪",
@@ -1607,10 +1615,27 @@ function ReaderScreen({
   const [pageDraft, setPageDraft] = useState(String(pageNumber));
   const [pinnedWords, setPinnedWords] = useState<Set<string>>(new Set());
   const [lookup, setLookup] = useState<WordLookupState | null>(null);
+  const [sentenceLookup, setSentenceLookup] =
+    useState<SentenceLookupState | null>(null);
+  const [highlightedSentence, setHighlightedSentence] = useState<{
+    end: number;
+    paragraphIndex: number;
+    start: number;
+  } | null>(null);
+  const sentenceLongPressTimer = useRef<number | null>(null);
+  const suppressNextWordClick = useRef(false);
 
   useEffect(() => {
     setPageDraft(String(pageNumber));
   }, [pageNumber]);
+
+  useEffect(() => {
+    return () => {
+      if (sentenceLongPressTimer.current) {
+        window.clearTimeout(sentenceLongPressTimer.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1624,10 +1649,105 @@ function ReaderScreen({
     };
   }, [languageCode]);
 
+  const clearSentenceLongPress = () => {
+    if (sentenceLongPressTimer.current) {
+      window.clearTimeout(sentenceLongPressTimer.current);
+      sentenceLongPressTimer.current = null;
+    }
+  };
+
+  const startSentenceLongPress = (
+    event: PointerEvent<HTMLButtonElement>,
+    paragraphIndex: number,
+    paragraph: string,
+    tokenStart: number
+  ) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+
+    const anchorRect = event.currentTarget.getBoundingClientRect();
+
+    clearSentenceLongPress();
+    suppressNextWordClick.current = false;
+    sentenceLongPressTimer.current = window.setTimeout(() => {
+      sentenceLongPressTimer.current = null;
+      suppressNextWordClick.current = true;
+      selectSentence(paragraphIndex, paragraph, tokenStart, anchorRect);
+    }, LONG_PRESS_MS);
+  };
+
+  const selectSentence = (
+    paragraphIndex: number,
+    paragraph: string,
+    tokenStart: number,
+    anchorRect: DOMRect
+  ) => {
+    const span = getSentenceSpans(paragraph).find(
+      (candidate) => tokenStart >= candidate.start && tokenStart < candidate.end
+    );
+
+    if (!span) return;
+
+    setHighlightedSentence({ end: span.end, paragraphIndex, start: span.start });
+
+    if (languageCode === "en" || languageCode === "und") {
+      setSentenceLookup({
+        anchorRect,
+        error:
+          languageCode === "en"
+            ? "No translation needed for English text."
+            : "Set a book language to translate text.",
+        languageCode,
+        sentence: span.text,
+        status: "error"
+      });
+      return;
+    }
+
+    setSentenceLookup({
+      anchorRect,
+      languageCode,
+      sentence: span.text,
+      status: "loading"
+    });
+
+    translateText(span.text, languageCode)
+      .then((result) => {
+        setSentenceLookup((current) =>
+          current && current.sentence === span.text
+            ? { ...current, result: result.text, status: "ready" }
+            : current
+        );
+      })
+      .catch((error: unknown) => {
+        setSentenceLookup((current) =>
+          current && current.sentence === span.text
+            ? {
+                ...current,
+                error:
+                  error instanceof Error ? error.message : "Translation failed.",
+                status: "error"
+              }
+            : current
+        );
+      });
+  };
+
+  const handleSentenceDismiss = () => {
+    setSentenceLookup(null);
+    setHighlightedSentence(null);
+  };
+
   const handleWordClick = (
     event: MouseEvent<HTMLButtonElement>,
     rawWord: string
   ) => {
+    clearSentenceLongPress();
+
+    if (suppressNextWordClick.current) {
+      suppressNextWordClick.current = false;
+      return;
+    }
+
     const word = normalizeWord(rawWord);
     const displayWord = rawWord.trim();
     const anchorRect = event.currentTarget.getBoundingClientRect();
@@ -1767,24 +1887,53 @@ function ReaderScreen({
           <div className="reader-page-body">
             {paragraphs.map((paragraph, paragraphIndex) => (
               <p key={`${pageNumber}-${paragraphIndex}`}>
-                {tokenizeParagraph(paragraph).map((token, tokenIndex) =>
-                  token.type === "word" ? (
-                    <button
-                      className={
-                        pinnedWords.has(normalizeWord(token.value))
-                          ? "reader-word reader-word--pinned"
-                          : "reader-word"
-                      }
+                {tokenizeParagraphWithOffsets(paragraph).map((token, tokenIndex) => {
+                  const isHighlighted =
+                    highlightedSentence?.paragraphIndex === paragraphIndex &&
+                    token.start >= highlightedSentence.start &&
+                    token.end <= highlightedSentence.end;
+
+                  if (token.type === "word") {
+                    const classNames = ["reader-word"];
+                    if (pinnedWords.has(normalizeWord(token.value))) {
+                      classNames.push("reader-word--pinned");
+                    }
+                    if (isHighlighted) {
+                      classNames.push("sentence-highlight");
+                    }
+
+                    return (
+                      <button
+                        className={classNames.join(" ")}
+                        key={tokenIndex}
+                        onClick={(event) => handleWordClick(event, token.value)}
+                        onPointerCancel={clearSentenceLongPress}
+                        onPointerDown={(event) =>
+                          startSentenceLongPress(
+                            event,
+                            paragraphIndex,
+                            paragraph,
+                            token.start
+                          )
+                        }
+                        onPointerLeave={clearSentenceLongPress}
+                        onPointerUp={clearSentenceLongPress}
+                        type="button"
+                      >
+                        {token.value}
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <span
+                      className={isHighlighted ? "sentence-highlight" : ""}
                       key={tokenIndex}
-                      onClick={(event) => handleWordClick(event, token.value)}
-                      type="button"
                     >
                       {token.value}
-                    </button>
-                  ) : (
-                    <span key={tokenIndex}>{token.value}</span>
-                  )
-                )}
+                    </span>
+                  );
+                })}
               </p>
             ))}
           </div>
@@ -1796,6 +1945,13 @@ function ReaderScreen({
           lookup={lookup}
           onDismiss={() => setLookup(null)}
           onTogglePin={handleTogglePin}
+        />
+      ) : null}
+
+      {sentenceLookup ? (
+        <SentenceLookupPopup
+          lookup={sentenceLookup}
+          onDismiss={handleSentenceDismiss}
         />
       ) : null}
     </article>

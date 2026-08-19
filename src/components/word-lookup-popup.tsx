@@ -1,8 +1,8 @@
 import { Circle, Volume2, VolumeX } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
 
 import type { WordLookupResult } from "@/lib/dictionary";
 import { speakWord } from "@/lib/speech";
+import { usePopupPosition } from "@/lib/use-popup-position";
 
 export type WordLookupState = {
   anchorRect: DOMRect;
@@ -24,36 +24,7 @@ export function WordLookupPopup({
   onDismiss: () => void;
   onTogglePin: () => void;
 }) {
-  const popupRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<{ left: number; top: number } | null>(
-    null
-  );
-
-  useEffect(() => {
-    const popup = popupRef.current;
-    if (!popup) return;
-
-    const margin = 12;
-    const popupRect = popup.getBoundingClientRect();
-    const { anchorRect } = lookup;
-
-    let top = anchorRect.bottom + 8;
-    if (top + popupRect.height + margin > window.innerHeight) {
-      top = anchorRect.top - popupRect.height - 8;
-    }
-    top = Math.max(
-      margin,
-      Math.min(top, window.innerHeight - popupRect.height - margin)
-    );
-
-    let left = anchorRect.left + anchorRect.width / 2 - popupRect.width / 2;
-    left = Math.max(
-      margin,
-      Math.min(left, window.innerWidth - popupRect.width - margin)
-    );
-
-    setPosition({ left, top });
-  }, [lookup]);
+  const { popupRef, position } = usePopupPosition(lookup.anchorRect);
 
   return (
     <div className="fixed inset-0 z-40" onClick={onDismiss}>

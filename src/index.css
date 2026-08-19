@@ -160,6 +160,15 @@
     text-underline-offset: 2px;
   }
 
+  .sentence-highlight {
+    background-color: rgba(23, 23, 23, 0.1);
+    border-radius: 2px;
+  }
+
+  .dark .sentence-highlight {
+    background-color: rgba(245, 245, 245, 0.15);
+  }
+
   .reader-measurer {
     contain: layout style paint;
     left: -10000px;

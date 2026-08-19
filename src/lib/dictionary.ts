@@ -17,7 +17,7 @@ export async function lookupWord(
     return lookupDefinition(word);
   }
 
-  return lookupTranslation(word, languageCode);
+  return translateText(word, languageCode);
 }
 
 async function lookupDefinition(word: string): Promise<WordLookupResult> {
@@ -43,8 +43,8 @@ async function lookupDefinition(word: string): Promise<WordLookupResult> {
   return { kind: "definition", text: definition };
 }
 
-async function lookupTranslation(
-  word: string,
+export async function translateText(
+  text: string,
   languageCode: string
 ): Promise<WordLookupResult> {
   const url = new URL("https://translate.googleapis.com/translate_a/single");
@@ -52,7 +52,7 @@ async function lookupTranslation(
   url.searchParams.set("sl", languageCode);
   url.searchParams.set("tl", "en");
   url.searchParams.set("dt", "t");
-  url.searchParams.set("q", word);
+  url.searchParams.set("q", text);
 
   const response = await fetchWithRetry(url);
 
