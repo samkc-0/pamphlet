@@ -2,19 +2,28 @@ export type SpeechProvider = {
   speak(word: string, languageCode: string): void;
 };
 
-const webSpeechProvider: SpeechProvider = {
+let currentAudio: HTMLAudioElement | null = null;
+
+const googleTranslateTtsProvider: SpeechProvider = {
   speak(word, languageCode) {
-    if (!("speechSynthesis" in window)) return;
+    if (currentAudio) {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+    }
 
-    const utterance = new SpeechSynthesisUtterance(word);
-    utterance.lang = languageCode;
+    const url = new URL("https://translate.google.com/translate_tts");
+    url.searchParams.set("ie", "UTF-8");
+    url.searchParams.set("client", "tw-ob");
+    url.searchParams.set("tl", languageCode);
+    url.searchParams.set("q", word);
 
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
+    const audio = new Audio(url.toString());
+    currentAudio = audio;
+    audio.play().catch(() => {});
   }
 };
 
-let activeProvider: SpeechProvider = webSpeechProvider;
+let activeProvider: SpeechProvider = googleTranslateTtsProvider;
 
 export function setSpeechProvider(provider: SpeechProvider) {
   activeProvider = provider;
