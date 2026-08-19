@@ -111,7 +111,13 @@ export function WordLookupPopup({
           </div>
         </div>
 
-        <p className="mt-2 text-sm leading-relaxed text-neutral-700 dark:text-neutral-300">
+        <p
+          className={`mt-2 text-sm leading-relaxed ${
+            lookup.languageCode === "und"
+              ? "italic text-neutral-400 dark:text-neutral-500"
+              : "text-neutral-700 dark:text-neutral-300"
+          }`}
+        >
           {lookup.status === "loading"
             ? "Looking up…"
             : lookup.status === "error"
