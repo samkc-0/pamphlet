@@ -4,6 +4,7 @@ export type BookSource = {
   fileName: string;
   fingerprint: string;
   id: string;
+  language?: string;
   size: number;
   storageKey: string;
   title: string;

@@ -128,6 +128,7 @@ const LIBRARY_BOOKS_PER_PAGE = 5;
 const LONG_PRESS_MS = 550;
 const MAX_OPEN_BOOKS = 5;
 const LANGUAGE_CHOICES = [
+  { code: "und", flag: "🌐", label: "Other" },
   { code: "en", flag: "🇬🇧", label: "English" },
   { code: "es", flag: "🇪🇸", label: "Spanish" },
   { code: "fr", flag: "🇫🇷", label: "French" },
@@ -302,6 +303,7 @@ function App() {
             fileName: file.name,
             fingerprint,
             id,
+            language: metadata.language,
             size: file.size,
             storageKey: id,
             title,
@@ -1811,7 +1813,12 @@ function getBookMetadata(
       metadataEdit?.author.trim() ||
       loadedBook?.data?.author?.trim() ||
       book.author,
-    languageCode: normalizeLanguageCode(metadataEdit?.languageCode ?? "und"),
+    languageCode: normalizeLanguageCode(
+      metadataEdit?.languageCode.trim() ||
+        loadedBook?.data?.language ||
+        book.language ||
+        "und"
+    ),
     title:
       metadataEdit?.title.trim() || loadedBook?.data?.title?.trim() || book.title
   };
@@ -1828,7 +1835,7 @@ function getSupportedLanguageCode(languageCode: string) {
     (language) => language.code === normalizedLanguageCode
   )
     ? normalizedLanguageCode
-    : LANGUAGE_CHOICES[0].code;
+    : "und";
 }
 
 function getViewportKey() {
