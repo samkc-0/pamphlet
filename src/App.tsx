@@ -1614,6 +1614,10 @@ function ReaderScreen({
   const [pageDraft, setPageDraft] = useState(String(pageNumber));
   const [pinnedWords, setPinnedWords] = useState<Set<string>>(new Set());
   const [lookup, setLookup] = useState<WordLookupState | null>(null);
+  const [wordLookupHighlight, setWordLookupHighlight] = useState<{
+    paragraphIndex: number;
+    tokenIndex: number;
+  } | null>(null);
   const [sentenceLookup, setSentenceLookup] =
     useState<SentenceLookupState | null>(null);
   const [selectionRange, setSelectionRange] = useState<{
@@ -1789,7 +1793,9 @@ function ReaderScreen({
 
   const handleWordClick = (
     event: MouseEvent<HTMLButtonElement>,
-    rawWord: string
+    rawWord: string,
+    paragraphIndex: number,
+    tokenIndex: number
   ) => {
     clearSentenceLongPress();
 
@@ -1801,6 +1807,8 @@ function ReaderScreen({
     const word = normalizeWord(rawWord);
     const displayWord = rawWord.trim();
     const anchorRect = event.currentTarget.getBoundingClientRect();
+
+    setWordLookupHighlight({ paragraphIndex, tokenIndex });
 
     if (languageCode === "und") {
       setLookup({
@@ -1939,9 +1947,11 @@ function ReaderScreen({
               <p key={`${pageNumber}-${paragraphIndex}`}>
                 {paragraphTokens[paragraphIndex].map((token, tokenIndex) => {
                   const isHighlighted =
-                    selectionRange?.paragraphIndex === paragraphIndex &&
-                    tokenIndex >= selectionRange.minIndex &&
-                    tokenIndex <= selectionRange.maxIndex;
+                    (selectionRange?.paragraphIndex === paragraphIndex &&
+                      tokenIndex >= selectionRange.minIndex &&
+                      tokenIndex <= selectionRange.maxIndex) ||
+                    (wordLookupHighlight?.paragraphIndex === paragraphIndex &&
+                      wordLookupHighlight?.tokenIndex === tokenIndex);
 
                   if (token.type === "word") {
                     const classNames = ["reader-word"];
@@ -1958,7 +1968,14 @@ function ReaderScreen({
                         data-paragraph-index={paragraphIndex}
                         data-token-index={tokenIndex}
                         key={tokenIndex}
-                        onClick={(event) => handleWordClick(event, token.value)}
+                        onClick={(event) =>
+                          handleWordClick(
+                            event,
+                            token.value,
+                            paragraphIndex,
+                            tokenIndex
+                          )
+                        }
                         onPointerCancel={handleSelectionPointerCancel}
                         onPointerDown={(event) =>
                           startSelectionLongPress(event, paragraphIndex, tokenIndex)
@@ -1997,7 +2014,10 @@ function ReaderScreen({
       {lookup ? (
         <WordLookupPopup
           lookup={lookup}
-          onDismiss={() => setLookup(null)}
+          onDismiss={() => {
+            setLookup(null);
+            setWordLookupHighlight(null);
+          }}
           onTogglePin={handleTogglePin}
         />
       ) : null}
