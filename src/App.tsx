@@ -1252,11 +1252,39 @@ function SpanishRegionReel({
   onSelect: () => void;
   value: SpanishVoiceRegion;
 }) {
-  const selectedIndex = SPANISH_VOICE_REGIONS.findIndex(
-    (region) => region.code === value
+  const regionCount = SPANISH_VOICE_REGIONS.length;
+  const indexOfValue = (code: SpanishVoiceRegion) =>
+    SPANISH_VOICE_REGIONS.findIndex((region) => region.code === code);
+
+  const [virtualIndex, setVirtualIndex] = useState(
+    () => indexOfValue(value) + regionCount
   );
-  const centerIndex = selectedIndex + SPANISH_VOICE_REGIONS.length;
-  const offset = SPANISH_REEL_PEEK - centerIndex * SPANISH_REEL_ROW_HEIGHT;
+  const [transitionEnabled, setTransitionEnabled] = useState(true);
+  const lastRequestedValue = useRef(value);
+
+  useEffect(() => {
+    if (value === lastRequestedValue.current) return;
+
+    lastRequestedValue.current = value;
+    setTransitionEnabled(false);
+    setVirtualIndex(indexOfValue(value) + regionCount);
+  }, [value, regionCount]);
+
+  useEffect(() => {
+    if (transitionEnabled) return;
+
+    const frame = requestAnimationFrame(() => setTransitionEnabled(true));
+    return () => cancelAnimationFrame(frame);
+  }, [transitionEnabled]);
+
+  const handleTransitionEnd = () => {
+    if (virtualIndex >= regionCount * 2) {
+      setTransitionEnabled(false);
+      setVirtualIndex((current) => current - regionCount);
+    }
+  };
+
+  const offset = SPANISH_REEL_PEEK - virtualIndex * SPANISH_REEL_ROW_HEIGHT;
 
   const longPressTimer = useRef<number | null>(null);
   const longPressFired = useRef(false);
@@ -1288,9 +1316,11 @@ function SpanishRegionReel({
       return;
     }
 
-    const regionCount = SPANISH_VOICE_REGIONS.length;
-    const nextRegion = SPANISH_VOICE_REGIONS[(selectedIndex + 1) % regionCount];
+    const nextVirtualIndex = virtualIndex + 1;
+    const nextRegion = SPANISH_VOICE_REGIONS[nextVirtualIndex % regionCount];
 
+    lastRequestedValue.current = nextRegion.code;
+    setVirtualIndex(nextVirtualIndex);
     onRegionChange(nextRegion.code);
 
     if (!isSelected) {
@@ -1316,7 +1346,10 @@ function SpanishRegionReel({
       type="button"
     >
       <div
-        className="absolute left-0 top-0 w-full transition-transform duration-200 ease-out"
+        className={`absolute left-0 top-0 w-full ${
+          transitionEnabled ? "transition-transform duration-200 ease-out" : ""
+        }`}
+        onTransitionEnd={handleTransitionEnd}
         style={{ transform: `translateY(${offset}px)` }}
       >
         {SPANISH_REEL_LOOPED_REGIONS.map((region, index) => (
