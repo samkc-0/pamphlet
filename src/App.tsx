@@ -302,6 +302,7 @@ function App() {
             fileName: file.name,
             fingerprint,
             id,
+            language: metadata.language,
             size: file.size,
             storageKey: id,
             title,
@@ -1811,7 +1812,12 @@ function getBookMetadata(
       metadataEdit?.author.trim() ||
       loadedBook?.data?.author?.trim() ||
       book.author,
-    languageCode: normalizeLanguageCode(metadataEdit?.languageCode ?? "und"),
+    languageCode: normalizeLanguageCode(
+      metadataEdit?.languageCode.trim() ||
+        loadedBook?.data?.language ||
+        book.language ||
+        "und"
+    ),
     title:
       metadataEdit?.title.trim() || loadedBook?.data?.title?.trim() || book.title
   };

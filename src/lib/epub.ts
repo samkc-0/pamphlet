@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { franc } from "franc-min";
 
 export type EpubSection = {
   chapterTitle?: string;
@@ -9,7 +10,15 @@ export type EpubSection = {
 export type EpubBook = {
   author?: string;
   chapters: EpubSection[];
+  language?: string;
   title?: string;
+};
+
+const DETECTABLE_LANGUAGES: Record<string, string> = {
+  eng: "en",
+  fra: "fr",
+  ita: "it",
+  spa: "es"
 };
 
 type ManifestItem = {
@@ -71,11 +80,14 @@ export async function loadEpubFromArrayBuffer(
     })
   );
 
+  const readyChapters = chapters.filter(
+    (chapter): chapter is EpubSection => chapter !== null
+  );
+
   return {
     ...metadata,
-    chapters: chapters.filter(
-      (chapter): chapter is EpubSection => chapter !== null
-    )
+    chapters: readyChapters,
+    language: metadata.language ?? detectLanguage(readyChapters)
   };
 }
 
@@ -117,8 +129,26 @@ function parseSpine(document: Document) {
 function parseMetadata(document: Document) {
   const title = getMetadataText(document, "title");
   const author = getMetadataText(document, "creator");
+  const language = normalizeLanguageTag(getMetadataText(document, "language"));
 
-  return { author, title };
+  return { author, language, title };
+}
+
+function normalizeLanguageTag(languageTag?: string) {
+  return languageTag?.trim().split(/[-_]/)[0]?.toLowerCase() || undefined;
+}
+
+function detectLanguage(chapters: EpubSection[]) {
+  const sampleText = chapters
+    .flatMap((chapter) => chapter.paragraphs)
+    .join(" ")
+    .slice(0, 4000);
+
+  const detected = franc(sampleText, {
+    only: Object.keys(DETECTABLE_LANGUAGES)
+  });
+
+  return DETECTABLE_LANGUAGES[detected];
 }
 
 function getMetadataText(document: Document, localName: string) {
