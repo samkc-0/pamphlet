@@ -103,9 +103,12 @@ type PageJump = {
   serial: number;
 };
 
+type SpanishVoiceRegion = "es" | "es-419";
+
 type BookMetadataEdit = {
   author: string;
   languageCode: string;
+  spanishVoiceRegion: SpanishVoiceRegion;
   title: string;
 };
 
@@ -786,6 +789,7 @@ function createBookRow(
             autoPlayWordAudio={Boolean(autoPlayWordAudio)}
             isSyncingState={Boolean(isSyncingState)}
             languageCode={metadata.languageCode}
+            spanishVoiceRegion={metadata.spanishVoiceRegion}
             pageNumber={index + 1}
             pageTotal={pages.length}
             chapterTitle={page.chapterTitle}
@@ -996,10 +1000,16 @@ function BookMetadataDialog({
 }) {
   const [author, setAuthor] = useState(metadata.author);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isRegionPickerOpen, setIsRegionPickerOpen] = useState(false);
   const [languageCode, setLanguageCode] = useState(
     getSupportedLanguageCode(metadata.languageCode)
   );
+  const [spanishVoiceRegion, setSpanishVoiceRegion] = useState(
+    metadata.spanishVoiceRegion
+  );
   const [title, setTitle] = useState(metadata.title);
+  const longPressTimer = useRef<number | null>(null);
+  const suppressNextLanguageClick = useRef(false);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -1012,14 +1022,60 @@ function BookMetadataDialog({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
+  useEffect(() => {
+    return () => {
+      if (longPressTimer.current) {
+        window.clearTimeout(longPressTimer.current);
+      }
+    };
+  }, []);
+
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     onSave(book.id, {
       author: author.trim(),
       languageCode: getSupportedLanguageCode(languageCode),
+      spanishVoiceRegion,
       title: title.trim()
     });
+  };
+
+  const startLanguageLongPress = (
+    languageOptionCode: string,
+    event: PointerEvent<HTMLElement>
+  ) => {
+    if (languageOptionCode !== "es") return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+
+    if (longPressTimer.current) {
+      window.clearTimeout(longPressTimer.current);
+    }
+
+    suppressNextLanguageClick.current = false;
+    longPressTimer.current = window.setTimeout(() => {
+      suppressNextLanguageClick.current = true;
+      setIsRegionPickerOpen(true);
+      longPressTimer.current = null;
+    }, LONG_PRESS_MS);
+  };
+
+  const clearLanguageLongPress = () => {
+    if (longPressTimer.current) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handleLanguageClick = (languageOptionCode: string) => {
+    clearLanguageLongPress();
+
+    if (suppressNextLanguageClick.current) {
+      suppressNextLanguageClick.current = false;
+      return;
+    }
+
+    setLanguageCode(languageOptionCode);
   };
 
   const handleDelete = () => {
@@ -1102,7 +1158,13 @@ function BookMetadataDialog({
                         : "border-neutral-300 dark:border-neutral-700"
                     } focus-visible:border-neutral-950 dark:focus-visible:border-neutral-100`}
                     key={language.code}
-                    onClick={() => setLanguageCode(language.code)}
+                    onClick={() => handleLanguageClick(language.code)}
+                    onPointerCancel={clearLanguageLongPress}
+                    onPointerDown={(event) =>
+                      startLanguageLongPress(language.code, event)
+                    }
+                    onPointerLeave={clearLanguageLongPress}
+                    onPointerUp={clearLanguageLongPress}
                     role="radio"
                     type="button"
                   >
@@ -1111,8 +1173,68 @@ function BookMetadataDialog({
                 );
               })}
             </div>
+            {languageCode === "es" ? (
+              <p className="mt-2 text-center text-xs text-neutral-400 dark:text-neutral-500">
+                Hold 🇪🇸 to choose Spain or Latin America
+              </p>
+            ) : null}
           </label>
         </div>
+
+        {isRegionPickerOpen ? (
+          <div
+            aria-labelledby="spanish-region-title"
+            aria-modal="true"
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-white/75 px-5 backdrop-blur-sm dark:bg-neutral-950/75"
+            onClick={() => setIsRegionPickerOpen(false)}
+            role="dialog"
+          >
+            <div
+              className="w-full max-w-xs border border-neutral-300 bg-white px-6 py-6 text-center shadow-sm dark:border-neutral-700 dark:bg-neutral-950"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <h3
+                className="text-sm text-neutral-500 dark:text-neutral-400"
+                id="spanish-region-title"
+              >
+                Spanish voice
+              </h3>
+
+              <div className="mt-4 space-y-2">
+                <button
+                  aria-pressed={spanishVoiceRegion === "es"}
+                  className={`block w-full border px-4 py-2 text-lg outline-none transition-colors ${
+                    spanishVoiceRegion === "es"
+                      ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
+                      : "border-neutral-300 dark:border-neutral-700"
+                  }`}
+                  onClick={() => {
+                    setSpanishVoiceRegion("es");
+                    setIsRegionPickerOpen(false);
+                  }}
+                  type="button"
+                >
+                  🇪🇸 Spain
+                </button>
+                <button
+                  aria-pressed={spanishVoiceRegion === "es-419"}
+                  className={`block w-full border px-4 py-2 text-lg outline-none transition-colors ${
+                    spanishVoiceRegion === "es-419"
+                      ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
+                      : "border-neutral-300 dark:border-neutral-700"
+                  }`}
+                  onClick={() => {
+                    setSpanishVoiceRegion("es-419");
+                    setIsRegionPickerOpen(false);
+                  }}
+                  type="button"
+                >
+                  🌎 Latin America
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-7 flex justify-center gap-6">
           <button
@@ -1372,6 +1494,7 @@ function ReaderScreen({
   paragraphs,
   pageNumber,
   pageTotal,
+  spanishVoiceRegion,
   title
 }: {
   author: string;
@@ -1383,8 +1506,11 @@ function ReaderScreen({
   pageNumber: number;
   pageTotal: number;
   paragraphs: string[];
+  spanishVoiceRegion: SpanishVoiceRegion;
   title: string;
 }) {
+  const spokenLanguageCode =
+    languageCode === "es" ? spanishVoiceRegion : languageCode;
   const [pageDraft, setPageDraft] = useState(String(pageNumber));
   const [pinnedWords, setPinnedWords] = useState<Set<string>>(new Set());
   const [lookup, setLookup] = useState<WordLookupState | null>(null);
@@ -1413,12 +1539,12 @@ function ReaderScreen({
     const anchorRect = event.currentTarget.getBoundingClientRect();
 
     if (autoPlayWordAudio) {
-      speakWord(word, languageCode);
+      speakWord(word, spokenLanguageCode);
     }
 
     setLookup({
       anchorRect,
-      languageCode,
+      languageCode: spokenLanguageCode,
       pinned: pinnedWords.has(word),
       status: "loading",
       word
@@ -1760,6 +1886,8 @@ function getPersistedBookMetadataEdits(value: unknown) {
       edits[bookId] = {
         author,
         languageCode: getSupportedLanguageCode(languageCode),
+        spanishVoiceRegion:
+          metadata.spanishVoiceRegion === "es-419" ? "es-419" : "es",
         title
       };
     }
@@ -1819,6 +1947,7 @@ function getBookMetadata(
         book.language ||
         "und"
     ),
+    spanishVoiceRegion: metadataEdit?.spanishVoiceRegion ?? "es",
     title:
       metadataEdit?.title.trim() || loadedBook?.data?.title?.trim() || book.title
   };
