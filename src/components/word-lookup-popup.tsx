@@ -6,6 +6,7 @@ import { speakWord } from "@/lib/speech";
 
 export type WordLookupState = {
   anchorRect: DOMRect;
+  displayWord: string;
   error?: string;
   languageCode: string;
   pinned: boolean;
@@ -68,7 +69,7 @@ export function WordLookupPopup({
       >
         <div className="flex items-start justify-between gap-3">
           <span className="font-serif text-lg text-neutral-950 dark:text-neutral-100">
-            {lookup.word}
+            {lookup.displayWord}
           </span>
           <div className="flex shrink-0 items-center gap-1">
             <button

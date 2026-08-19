@@ -1642,11 +1642,13 @@ function ReaderScreen({
     rawWord: string
   ) => {
     const word = normalizeWord(rawWord);
+    const displayWord = rawWord.trim();
     const anchorRect = event.currentTarget.getBoundingClientRect();
 
     if (languageCode === "und") {
       setLookup({
         anchorRect,
+        displayWord,
         error: "Set a book language to look up words.",
         languageCode: spokenLanguageCode,
         pinned: pinnedWords.has(word),
@@ -1662,6 +1664,7 @@ function ReaderScreen({
 
     setLookup({
       anchorRect,
+      displayWord,
       languageCode: spokenLanguageCode,
       pinned: pinnedWords.has(word),
       status: "loading",
