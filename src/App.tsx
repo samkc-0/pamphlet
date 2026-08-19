@@ -35,7 +35,6 @@ import { paginateBookByLayout, type ReaderPage } from "@/lib/pagination";
 import { loadPinnedWords, setWordPinned } from "@/lib/pinned-words";
 import { speakWord } from "@/lib/speech";
 import {
-  getSentenceSpans,
   normalizeWord,
   tokenizeParagraphWithOffsets
 } from "@/lib/tokenize";
@@ -1617,13 +1616,19 @@ function ReaderScreen({
   const [lookup, setLookup] = useState<WordLookupState | null>(null);
   const [sentenceLookup, setSentenceLookup] =
     useState<SentenceLookupState | null>(null);
-  const [highlightedSentence, setHighlightedSentence] = useState<{
-    end: number;
+  const [selectionRange, setSelectionRange] = useState<{
+    maxIndex: number;
+    minIndex: number;
     paragraphIndex: number;
-    start: number;
   } | null>(null);
+  const isSelecting = useRef(false);
+  const selectionAnchorIndex = useRef(0);
   const sentenceLongPressTimer = useRef<number | null>(null);
   const suppressNextWordClick = useRef(false);
+  const paragraphTokens = useMemo(
+    () => paragraphs.map((paragraph) => tokenizeParagraphWithOffsets(paragraph)),
+    [paragraphs]
+  );
 
   useEffect(() => {
     setPageDraft(String(pageNumber));
@@ -1656,39 +1661,78 @@ function ReaderScreen({
     }
   };
 
-  const startSentenceLongPress = (
+  const startSelectionLongPress = (
     event: PointerEvent<HTMLButtonElement>,
     paragraphIndex: number,
-    paragraph: string,
-    tokenStart: number
+    tokenIndex: number
   ) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
 
-    const anchorRect = event.currentTarget.getBoundingClientRect();
+    event.currentTarget.setPointerCapture(event.pointerId);
 
     clearSentenceLongPress();
     suppressNextWordClick.current = false;
     sentenceLongPressTimer.current = window.setTimeout(() => {
       sentenceLongPressTimer.current = null;
       suppressNextWordClick.current = true;
-      selectSentence(paragraphIndex, paragraph, tokenStart, anchorRect);
+      isSelecting.current = true;
+      selectionAnchorIndex.current = tokenIndex;
+      setSelectionRange({ maxIndex: tokenIndex, minIndex: tokenIndex, paragraphIndex });
     }, LONG_PRESS_MS);
   };
 
-  const selectSentence = (
-    paragraphIndex: number,
-    paragraph: string,
-    tokenStart: number,
-    anchorRect: DOMRect
+  const handleSelectionPointerMove = (
+    event: PointerEvent<HTMLButtonElement>,
+    paragraphIndex: number
   ) => {
-    const span = getSentenceSpans(paragraph).find(
-      (candidate) => tokenStart >= candidate.start && tokenStart < candidate.end
-    );
+    if (!isSelecting.current) return;
 
-    if (!span) return;
+    const hovered = document.elementFromPoint(event.clientX, event.clientY);
+    const tokenElement = hovered?.closest<HTMLElement>("[data-token-index]");
+    if (!tokenElement) return;
 
-    setHighlightedSentence({ end: span.end, paragraphIndex, start: span.start });
+    if (Number(tokenElement.dataset.paragraphIndex) !== paragraphIndex) return;
 
+    const tokenIndex = Number(tokenElement.dataset.tokenIndex);
+
+    setSelectionRange({
+      maxIndex: Math.max(selectionAnchorIndex.current, tokenIndex),
+      minIndex: Math.min(selectionAnchorIndex.current, tokenIndex),
+      paragraphIndex
+    });
+  };
+
+  const handleSelectionPointerUp = (event: PointerEvent<HTMLButtonElement>) => {
+    clearSentenceLongPress();
+
+    if (!isSelecting.current) return;
+
+    isSelecting.current = false;
+
+    if (!selectionRange) return;
+
+    const tokens = paragraphTokens[selectionRange.paragraphIndex];
+    const text = tokens
+      .slice(selectionRange.minIndex, selectionRange.maxIndex + 1)
+      .map((token) => token.value)
+      .join("")
+      .trim();
+
+    if (text) {
+      translateSelection(text, event.currentTarget.getBoundingClientRect());
+    }
+  };
+
+  const handleSelectionPointerCancel = () => {
+    clearSentenceLongPress();
+
+    if (isSelecting.current) {
+      isSelecting.current = false;
+      setSelectionRange(null);
+    }
+  };
+
+  const translateSelection = (text: string, anchorRect: DOMRect) => {
     if (languageCode === "en" || languageCode === "und") {
       setSentenceLookup({
         anchorRect,
@@ -1697,7 +1741,7 @@ function ReaderScreen({
             ? "No translation needed for English text."
             : "Set a book language to translate text.",
         languageCode,
-        sentence: span.text,
+        sentence: text,
         status: "error"
       });
       return;
@@ -1706,21 +1750,21 @@ function ReaderScreen({
     setSentenceLookup({
       anchorRect,
       languageCode,
-      sentence: span.text,
+      sentence: text,
       status: "loading"
     });
 
-    translateText(span.text, languageCode)
+    translateText(text, languageCode)
       .then((result) => {
         setSentenceLookup((current) =>
-          current && current.sentence === span.text
+          current && current.sentence === text
             ? { ...current, result: result.text, status: "ready" }
             : current
         );
       })
       .catch((error: unknown) => {
         setSentenceLookup((current) =>
-          current && current.sentence === span.text
+          current && current.sentence === text
             ? {
                 ...current,
                 error:
@@ -1734,7 +1778,7 @@ function ReaderScreen({
 
   const handleSentenceDismiss = () => {
     setSentenceLookup(null);
-    setHighlightedSentence(null);
+    setSelectionRange(null);
   };
 
   const handleWordClick = (
@@ -1887,11 +1931,11 @@ function ReaderScreen({
           <div className="reader-page-body">
             {paragraphs.map((paragraph, paragraphIndex) => (
               <p key={`${pageNumber}-${paragraphIndex}`}>
-                {tokenizeParagraphWithOffsets(paragraph).map((token, tokenIndex) => {
+                {paragraphTokens[paragraphIndex].map((token, tokenIndex) => {
                   const isHighlighted =
-                    highlightedSentence?.paragraphIndex === paragraphIndex &&
-                    token.start >= highlightedSentence.start &&
-                    token.end <= highlightedSentence.end;
+                    selectionRange?.paragraphIndex === paragraphIndex &&
+                    tokenIndex >= selectionRange.minIndex &&
+                    tokenIndex <= selectionRange.maxIndex;
 
                   if (token.type === "word") {
                     const classNames = ["reader-word"];
@@ -1905,19 +1949,21 @@ function ReaderScreen({
                     return (
                       <button
                         className={classNames.join(" ")}
+                        data-paragraph-index={paragraphIndex}
+                        data-token-index={tokenIndex}
                         key={tokenIndex}
                         onClick={(event) => handleWordClick(event, token.value)}
-                        onPointerCancel={clearSentenceLongPress}
+                        onPointerCancel={handleSelectionPointerCancel}
                         onPointerDown={(event) =>
-                          startSentenceLongPress(
-                            event,
-                            paragraphIndex,
-                            paragraph,
-                            token.start
-                          )
+                          startSelectionLongPress(event, paragraphIndex, tokenIndex)
                         }
-                        onPointerLeave={clearSentenceLongPress}
-                        onPointerUp={clearSentenceLongPress}
+                        onPointerLeave={() => {
+                          if (!isSelecting.current) clearSentenceLongPress();
+                        }}
+                        onPointerMove={(event) =>
+                          handleSelectionPointerMove(event, paragraphIndex)
+                        }
+                        onPointerUp={handleSelectionPointerUp}
                         type="button"
                       >
                         {token.value}
@@ -1928,6 +1974,8 @@ function ReaderScreen({
                   return (
                     <span
                       className={isHighlighted ? "sentence-highlight" : ""}
+                      data-paragraph-index={paragraphIndex}
+                      data-token-index={tokenIndex}
                       key={tokenIndex}
                     >
                       {token.value}
