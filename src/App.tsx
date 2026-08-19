@@ -1231,7 +1231,6 @@ function BookMetadataDialog({
   );
 }
 
-const SPANISH_REEL_DRAG_THRESHOLD = 6;
 const SPANISH_REEL_ROW_HEIGHT = 24;
 const SPANISH_REEL_PEEK = 12;
 const SPANISH_REEL_LOOPED_REGIONS = [
@@ -1257,12 +1256,8 @@ function SpanishRegionReel({
     (region) => region.code === value
   );
   const centerIndex = selectedIndex + SPANISH_VOICE_REGIONS.length;
-  const baseOffset = SPANISH_REEL_PEEK - centerIndex * SPANISH_REEL_ROW_HEIGHT;
+  const offset = SPANISH_REEL_PEEK - centerIndex * SPANISH_REEL_ROW_HEIGHT;
 
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState(0);
-  const pointerStartY = useRef(0);
-  const dragged = useRef(false);
   const longPressTimer = useRef<number | null>(null);
   const longPressFired = useRef(false);
 
@@ -1276,12 +1271,7 @@ function SpanishRegionReel({
   const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
 
-    pointerStartY.current = event.clientY;
-    dragged.current = false;
     longPressFired.current = false;
-    setDragOffset(0);
-    event.currentTarget.setPointerCapture(event.pointerId);
-
     clearLongPressTimer();
     longPressTimer.current = window.setTimeout(() => {
       longPressFired.current = true;
@@ -1290,50 +1280,22 @@ function SpanishRegionReel({
     }, LONG_PRESS_MS);
   };
 
-  const handlePointerMove = (event: PointerEvent<HTMLButtonElement>) => {
-    if (longPressFired.current) return;
-
-    const delta = event.clientY - pointerStartY.current;
-
-    if (!dragged.current) {
-      if (Math.abs(delta) < SPANISH_REEL_DRAG_THRESHOLD) return;
-
-      dragged.current = true;
-      setIsDragging(true);
-      clearLongPressTimer();
-    }
-
-    const lapOffset = SPANISH_VOICE_REGIONS.length * SPANISH_REEL_ROW_HEIGHT;
-
-    setDragOffset(clampNumber(delta, -lapOffset, lapOffset));
-  };
-
-  const handlePointerUp = () => {
+  const handleClick = () => {
     clearLongPressTimer();
 
-    if (!longPressFired.current) {
-      if (dragged.current) {
-        const regionCount = SPANISH_VOICE_REGIONS.length;
-        const rawIndex =
-          selectedIndex - Math.round(dragOffset / SPANISH_REEL_ROW_HEIGHT);
-        const nextIndex = ((rawIndex % regionCount) + regionCount) % regionCount;
-        const nextRegion = SPANISH_VOICE_REGIONS[nextIndex];
-
-        if (nextRegion.code !== value) {
-          onRegionChange(nextRegion.code);
-        }
-
-        if (!isSelected) {
-          onSelect();
-        }
-      } else {
-        onSelect();
-      }
+    if (longPressFired.current) {
+      longPressFired.current = false;
+      return;
     }
 
-    dragged.current = false;
-    setIsDragging(false);
-    setDragOffset(0);
+    const regionCount = SPANISH_VOICE_REGIONS.length;
+    const nextRegion = SPANISH_VOICE_REGIONS[(selectedIndex + 1) % regionCount];
+
+    onRegionChange(nextRegion.code);
+
+    if (!isSelected) {
+      onSelect();
+    }
   };
 
   return (
@@ -1345,20 +1307,17 @@ function SpanishRegionReel({
           ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
           : "border-neutral-300 dark:border-neutral-700"
       } focus-visible:border-neutral-950 dark:focus-visible:border-neutral-100`}
-      onPointerCancel={handlePointerUp}
+      onClick={handleClick}
+      onPointerCancel={clearLongPressTimer}
       onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
+      onPointerLeave={clearLongPressTimer}
+      onPointerUp={clearLongPressTimer}
       role="radio"
-      style={{ touchAction: "none" }}
       type="button"
     >
       <div
-        className="absolute left-0 top-0 w-full"
-        style={{
-          transform: `translateY(${baseOffset + dragOffset}px)`,
-          transition: isDragging ? "none" : "transform 200ms ease-out"
-        }}
+        className="absolute left-0 top-0 w-full transition-transform duration-200 ease-out"
+        style={{ transform: `translateY(${offset}px)` }}
       >
         {SPANISH_REEL_LOOPED_REGIONS.map((region, index) => (
           <div
