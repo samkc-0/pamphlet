@@ -146,6 +146,8 @@
   .reader-word {
     all: unset;
     cursor: pointer;
+    line-height: inherit;
+    vertical-align: baseline;
   }
 
   .sans-serif-font {
