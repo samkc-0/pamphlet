@@ -1644,6 +1644,18 @@ function ReaderScreen({
     const word = normalizeWord(rawWord);
     const anchorRect = event.currentTarget.getBoundingClientRect();
 
+    if (languageCode === "und") {
+      setLookup({
+        anchorRect,
+        error: "Set a book language to look up words.",
+        languageCode: spokenLanguageCode,
+        pinned: pinnedWords.has(word),
+        status: "error",
+        word
+      });
+      return;
+    }
+
     if (autoPlayWordAudio) {
       speakWord(word, spokenLanguageCode);
     }
