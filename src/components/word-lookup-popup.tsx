@@ -73,7 +73,8 @@ export function WordLookupPopup({
           <div className="flex shrink-0 items-center gap-1">
             <button
               aria-label="Listen"
-              className="rounded-full p-1 text-neutral-500 dark:text-neutral-400"
+              className="rounded-full p-1 text-neutral-500 disabled:opacity-30 dark:text-neutral-400"
+              disabled={lookup.languageCode === "und"}
               onClick={() => speakWord(lookup.word, lookup.languageCode)}
               type="button"
             >
