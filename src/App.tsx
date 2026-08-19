@@ -105,14 +105,15 @@ type PageJump = {
 
 type SpanishVoiceRegion = "es" | "es-AR" | "es-MX";
 
+type FontFamily = "sans" | "serif";
+
 type BookMetadataEdit = {
   author: string;
+  fontFamily: FontFamily;
   languageCode: string;
   spanishVoiceRegion: SpanishVoiceRegion;
   title: string;
 };
-
-type FontFamily = "sans" | "serif";
 
 type PersistedAppState = {
   activePageByRowId: Record<string, string>;
@@ -120,7 +121,6 @@ type PersistedAppState = {
   animationsEnabled: boolean;
   autoPlayWordAudio: boolean;
   bookMetadataEdits: Record<string, BookMetadataEdit>;
-  fontFamily: FontFamily;
   isDarkMode: boolean;
   lastSpanishVoiceRegion: SpanishVoiceRegion;
   openBookIds: string[];
@@ -162,9 +162,6 @@ function App() {
   );
   const [isDarkMode, setIsDarkMode] = useState(
     () => defaultPersistedState.isDarkMode
-  );
-  const [fontFamily, setFontFamily] = useState<FontFamily>(
-    () => defaultPersistedState.fontFamily
   );
   const [autoPlayWordAudio, setAutoPlayWordAudio] = useState(
     () => defaultPersistedState.autoPlayWordAudio
@@ -211,7 +208,6 @@ function App() {
       setAnimationsEnabled(persistedState.animationsEnabled);
       setAutoPlayWordAudio(persistedState.autoPlayWordAudio);
       setBookMetadataEdits(persistedState.bookMetadataEdits);
-      setFontFamily(persistedState.fontFamily);
       setIsDarkMode(persistedState.isDarkMode);
       setLastSpanishVoiceRegion(persistedState.lastSpanishVoiceRegion);
       setOpenBookIds(persistedState.openBookIds);
@@ -366,7 +362,6 @@ function App() {
       animationsEnabled,
       autoPlayWordAudio,
       bookMetadataEdits,
-      fontFamily,
       isDarkMode,
       lastSpanishVoiceRegion,
       openBookIds,
@@ -393,7 +388,6 @@ function App() {
     animationsEnabled,
     autoPlayWordAudio,
     bookMetadataEdits,
-    fontFamily,
     isStateLoaded,
     isDarkMode,
     lastSpanishVoiceRegion,
@@ -488,10 +482,6 @@ function App() {
     setAnimationsEnabled((current) => !current);
   }, []);
 
-  const toggleFontFamily = useCallback(() => {
-    setFontFamily((current) => (current === "serif" ? "sans" : "serif"));
-  }, []);
-
   const toggleAutoPlayWordAudio = useCallback(() => {
     setAutoPlayWordAudio((current) => !current);
   }, []);
@@ -552,7 +542,6 @@ function App() {
         autoPlayWordAudio,
         books,
         bookMetadataEdits,
-        fontFamily,
         isDarkMode,
         isSyncingState,
         isUploadingBooks,
@@ -567,7 +556,6 @@ function App() {
         toggleAnimations,
         toggleAutoPlayWordAudio,
         toggleDarkMode,
-        toggleFontFamily,
         toggleBook,
         uploadError,
         uploadBooks
@@ -578,7 +566,6 @@ function App() {
       autoPlayWordAudio,
       books,
       bookMetadataEdits,
-      fontFamily,
       isDarkMode,
       isSyncingState,
       isUploadingBooks,
@@ -591,7 +578,6 @@ function App() {
       toggleAnimations,
       toggleAutoPlayWordAudio,
       toggleDarkMode,
-      toggleFontFamily,
       toggleBook,
       uploadError,
       uploadBooks
@@ -600,7 +586,7 @@ function App() {
 
   if (!isStateLoaded || !isBookCatalogLoaded) {
     return (
-      <div className={getRootClassName(isDarkMode, fontFamily)}>
+      <div className={getRootClassName(isDarkMode)}>
         <SyncingScreen animationsEnabled={animationsEnabled} />
       </div>
     );
@@ -608,14 +594,14 @@ function App() {
 
   if (booksError) {
     return (
-      <div className={getRootClassName(isDarkMode, fontFamily)}>
+      <div className={getRootClassName(isDarkMode)}>
         <CatalogErrorScreen error={booksError} />
       </div>
     );
   }
 
   return (
-    <div className={getRootClassName(isDarkMode, fontFamily)}>
+    <div className={getRootClassName(isDarkMode)}>
       <SwipeWorkspace
         animations={animationsEnabled}
         initialPageByRowId={activePageByRowId}
@@ -670,7 +656,6 @@ function createArticleRows({
   autoPlayWordAudio,
   books,
   bookMetadataEdits,
-  fontFamily,
   isDarkMode,
   isSyncingState,
   isUploadingBooks,
@@ -684,7 +669,6 @@ function createArticleRows({
   toggleAnimations,
   toggleAutoPlayWordAudio,
   toggleDarkMode,
-  toggleFontFamily,
   toggleBook,
   uploadError,
   uploadBooks
@@ -694,7 +678,6 @@ function createArticleRows({
   autoPlayWordAudio: boolean;
   books: BookSource[];
   bookMetadataEdits: Record<string, BookMetadataEdit>;
-  fontFamily: FontFamily;
   isDarkMode: boolean;
   isSyncingState: boolean;
   isUploadingBooks: boolean;
@@ -708,7 +691,6 @@ function createArticleRows({
   toggleAnimations: () => void;
   toggleAutoPlayWordAudio: () => void;
   toggleDarkMode: () => void;
-  toggleFontFamily: () => void;
   toggleBook: (bookId: string) => void;
   uploadError: string | null;
   uploadBooks: (files: File[]) => Promise<void>;
@@ -723,12 +705,10 @@ function createArticleRows({
             <SettingsScreen
               animationsEnabled={animationsEnabled}
               autoPlayWordAudio={autoPlayWordAudio}
-              fontFamily={fontFamily}
               isDarkMode={isDarkMode}
               toggleAnimations={toggleAnimations}
               toggleAutoPlayWordAudio={toggleAutoPlayWordAudio}
               toggleDarkMode={toggleDarkMode}
-              toggleFontFamily={toggleFontFamily}
             />
           )
         }
@@ -818,6 +798,7 @@ function createBookRow(
           <ReaderScreen
             author={metadata.author}
             autoPlayWordAudio={Boolean(autoPlayWordAudio)}
+            fontFamily={metadata.fontFamily}
             isSyncingState={Boolean(isSyncingState)}
             languageCode={metadata.languageCode}
             spanishVoiceRegion={metadata.spanishVoiceRegion}
@@ -861,21 +842,17 @@ function createBookRow(
 function SettingsScreen({
   animationsEnabled,
   autoPlayWordAudio,
-  fontFamily,
   isDarkMode,
   toggleAnimations,
   toggleAutoPlayWordAudio,
-  toggleDarkMode,
-  toggleFontFamily
+  toggleDarkMode
 }: {
   animationsEnabled: boolean;
   autoPlayWordAudio: boolean;
-  fontFamily: FontFamily;
   isDarkMode: boolean;
   toggleAnimations: () => void;
   toggleAutoPlayWordAudio: () => void;
   toggleDarkMode: () => void;
-  toggleFontFamily: () => void;
 }) {
   return (
     <div className="flex min-h-full items-center px-5 py-8 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-12">
@@ -905,15 +882,6 @@ function SettingsScreen({
               type="button"
             >
               Animations {animationsEnabled ? "on" : "off"}
-            </button>
-
-            <button
-              aria-pressed={fontFamily === "sans"}
-              className="mx-auto block text-lg leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400"
-              onClick={toggleFontFamily}
-              type="button"
-            >
-              Font {fontFamily === "serif" ? "serif" : "sans-serif"}
             </button>
 
             <button
@@ -1030,6 +998,7 @@ function BookMetadataDialog({
   onSave: (bookId: string, metadata: BookMetadataEdit) => void;
 }) {
   const [author, setAuthor] = useState(metadata.author);
+  const [fontFamily, setFontFamily] = useState(metadata.fontFamily);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRegionPickerOpen, setIsRegionPickerOpen] = useState(false);
   const [languageCode, setLanguageCode] = useState(
@@ -1056,6 +1025,7 @@ function BookMetadataDialog({
 
     onSave(book.id, {
       author: author.trim(),
+      fontFamily,
       languageCode: getSupportedLanguageCode(languageCode),
       spanishVoiceRegion,
       title: title.trim()
@@ -1165,6 +1135,21 @@ function BookMetadataDialog({
               })}
             </div>
           </label>
+
+          <div className="text-center">
+            <button
+              aria-pressed={fontFamily === "sans"}
+              className="text-lg leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400"
+              onClick={() =>
+                setFontFamily((current) =>
+                  current === "serif" ? "sans" : "serif"
+                )
+              }
+              type="button"
+            >
+              Font {fontFamily === "serif" ? "serif" : "sans-serif"}
+            </button>
+          </div>
         </div>
 
         {isRegionPickerOpen ? (
@@ -1594,6 +1579,7 @@ function ReaderScreen({
   author,
   autoPlayWordAudio,
   chapterTitle,
+  fontFamily,
   isSyncingState,
   languageCode,
   onPageChange,
@@ -1606,6 +1592,7 @@ function ReaderScreen({
   author: string;
   autoPlayWordAudio: boolean;
   chapterTitle?: string;
+  fontFamily: FontFamily;
   isSyncingState: boolean;
   languageCode: string;
   onPageChange: (pageNumber: number) => void;
@@ -1731,7 +1718,9 @@ function ReaderScreen({
 
   return (
     <article
-      className="grid h-full grid-rows-[auto_1fr] overflow-hidden px-5 py-5 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-7"
+      className={`grid h-full grid-rows-[auto_1fr] overflow-hidden px-5 py-5 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-7 ${
+        fontFamily === "sans" ? "sans-serif-font" : ""
+      }`}
       lang={languageCode}
     >
       <header className="mx-auto flex w-full max-w-3xl min-w-0 items-baseline justify-between gap-4 border-neutral-200 pb-3 text-sm text-neutral-500 dark:text-neutral-400">
@@ -1856,7 +1845,6 @@ function getDefaultPersistedAppState(): PersistedAppState {
     animationsEnabled: true,
     autoPlayWordAudio: false,
     bookMetadataEdits: {},
-    fontFamily: "serif",
     isDarkMode: false,
     lastSpanishVoiceRegion: "es",
     openBookIds: [],
@@ -1957,10 +1945,6 @@ function normalizePersistedAppState(
         ? state.autoPlayWordAudio
         : defaultState.autoPlayWordAudio,
     bookMetadataEdits,
-    fontFamily:
-      state.fontFamily === "sans" || state.fontFamily === "serif"
-        ? state.fontFamily
-        : defaultState.fontFamily,
     isDarkMode:
       typeof state.isDarkMode === "boolean"
         ? state.isDarkMode
@@ -2014,6 +1998,10 @@ function getPersistedBookMetadataEdits(value: unknown) {
     ) {
       edits[bookId] = {
         author,
+        fontFamily:
+          metadata.fontFamily === "sans" || metadata.fontFamily === "serif"
+            ? metadata.fontFamily
+            : "serif",
         languageCode: getSupportedLanguageCode(languageCode),
         spanishVoiceRegion: isSpanishVoiceRegion(metadata.spanishVoiceRegion)
           ? metadata.spanishVoiceRegion
@@ -2072,6 +2060,7 @@ function getBookMetadata(
       metadataEdit?.author.trim() ||
       loadedBook?.data?.author?.trim() ||
       book.author,
+    fontFamily: metadataEdit?.fontFamily ?? "serif",
     languageCode: normalizeLanguageCode(
       metadataEdit?.languageCode.trim() ||
         loadedBook?.data?.language ||
@@ -2137,13 +2126,8 @@ function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-function getRootClassName(isDarkMode: boolean, fontFamily: FontFamily) {
-  return [
-    isDarkMode ? "dark" : "",
-    fontFamily === "sans" ? "sans-serif-font" : ""
-  ]
-    .filter(Boolean)
-    .join(" ");
+function getRootClassName(isDarkMode: boolean) {
+  return isDarkMode ? "dark" : "";
 }
 
 function shallowEqualRecords(
