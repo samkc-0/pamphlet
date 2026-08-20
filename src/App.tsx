@@ -1439,7 +1439,7 @@ function SpanishRegionReel({
       >
         {SPANISH_REEL_LOOPED_REGIONS.map((region, index) => (
           <div
-            className="grid place-items-center leading-none"
+            className="grid place-items-center"
             key={`${region.code}-${index}`}
             style={{ height: SPANISH_REEL_ROW_HEIGHT }}
           >
