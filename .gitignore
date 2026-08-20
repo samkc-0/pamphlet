@@ -4,5 +4,6 @@ dist
 *.local
 
 *.tsbuildinfo
-public/books/
+public/books/*
+!public/books/Le_Colonel_Chabert.epub
 public/book-assets/

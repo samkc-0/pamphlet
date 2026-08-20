@@ -128,6 +128,7 @@ type PersistedAppState = {
   animationsEnabled: boolean;
   autoPlayWordAudio: boolean;
   bookMetadataEdits: Record<string, BookMetadataEdit>;
+  hasSeededDemoBook: boolean;
   isDarkMode: boolean;
   lastSpanishVoiceRegion: SpanishVoiceRegion;
   openBookIds: string[];
@@ -135,6 +136,7 @@ type PersistedAppState = {
   version: 1;
 };
 
+const DEMO_BOOK_PATH = "/books/Le_Colonel_Chabert.epub";
 const LIBRARY_BOOKS_PER_PAGE = 5;
 const LONG_PRESS_MS = 550;
 const MAX_OPEN_BOOKS = 5;
@@ -177,6 +179,9 @@ function App() {
     useState<SpanishVoiceRegion>(
       () => defaultPersistedState.lastSpanishVoiceRegion
     );
+  const [hasSeededDemoBook, setHasSeededDemoBook] = useState(
+    () => defaultPersistedState.hasSeededDemoBook
+  );
   const [bookMetadataEdits, setBookMetadataEdits] = useState<
     Record<string, BookMetadataEdit>
   >(() => defaultPersistedState.bookMetadataEdits);
@@ -215,6 +220,7 @@ function App() {
       setAnimationsEnabled(persistedState.animationsEnabled);
       setAutoPlayWordAudio(persistedState.autoPlayWordAudio);
       setBookMetadataEdits(persistedState.bookMetadataEdits);
+      setHasSeededDemoBook(persistedState.hasSeededDemoBook);
       setIsDarkMode(persistedState.isDarkMode);
       setLastSpanishVoiceRegion(persistedState.lastSpanishVoiceRegion);
       setOpenBookIds(persistedState.openBookIds);
@@ -253,6 +259,27 @@ function App() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isStateLoaded || !isBookCatalogLoaded || hasSeededDemoBook) return;
+
+    let cancelled = false;
+
+    seedDemoBook()
+      .catch(() => {})
+      .then(() => refreshBookCatalog())
+      .then((books) => {
+        if (cancelled) return;
+        setBooks(books);
+      })
+      .finally(() => {
+        if (!cancelled) setHasSeededDemoBook(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasSeededDemoBook, isBookCatalogLoaded, isStateLoaded]);
 
   useEffect(() => {
     if (!isBookCatalogLoaded || books.length === 0) return;
@@ -369,6 +396,7 @@ function App() {
       animationsEnabled,
       autoPlayWordAudio,
       bookMetadataEdits,
+      hasSeededDemoBook,
       isDarkMode,
       lastSpanishVoiceRegion,
       openBookIds,
@@ -395,6 +423,7 @@ function App() {
     animationsEnabled,
     autoPlayWordAudio,
     bookMetadataEdits,
+    hasSeededDemoBook,
     isStateLoaded,
     isDarkMode,
     lastSpanishVoiceRegion,
@@ -2075,6 +2104,7 @@ function getDefaultPersistedAppState(): PersistedAppState {
     animationsEnabled: true,
     autoPlayWordAudio: false,
     bookMetadataEdits: {},
+    hasSeededDemoBook: false,
     isDarkMode: false,
     lastSpanishVoiceRegion: "es",
     openBookIds: [],
@@ -2085,6 +2115,35 @@ function getDefaultPersistedAppState(): PersistedAppState {
 
 async function refreshBookCatalog() {
   return loadBookCatalog();
+}
+
+async function seedDemoBook() {
+  const response = await fetch(DEMO_BOOK_PATH);
+  if (!response.ok) return;
+
+  const data = await response.arrayBuffer();
+  const metadata = await loadEpubFromArrayBuffer(data.slice(0));
+  const fingerprint = fingerprintArrayBuffer(data);
+  const title = metadata.title?.trim() || "Le Colonel Chabert";
+  const author = metadata.author?.trim() || "Honoré de Balzac";
+  const now = Date.now();
+  const id = `${slugify(title)}-${fingerprint.slice(0, 12)}`;
+
+  await saveUploadedBook({
+    book: {
+      author,
+      createdAt: now,
+      fileName: "Le_Colonel_Chabert.epub",
+      fingerprint,
+      id,
+      language: metadata.language,
+      size: data.byteLength,
+      storageKey: id,
+      title,
+      updatedAt: now
+    },
+    data
+  });
 }
 
 function fingerprintArrayBuffer(data: ArrayBuffer) {
@@ -2175,6 +2234,10 @@ function normalizePersistedAppState(
         ? state.autoPlayWordAudio
         : defaultState.autoPlayWordAudio,
     bookMetadataEdits,
+    hasSeededDemoBook:
+      typeof state.hasSeededDemoBook === "boolean"
+        ? state.hasSeededDemoBook
+        : defaultState.hasSeededDemoBook,
     isDarkMode:
       typeof state.isDarkMode === "boolean"
         ? state.isDarkMode
