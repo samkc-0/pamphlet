@@ -144,24 +144,30 @@ const LIBRARY_BOOKS_PER_PAGE = 5;
 const LONG_PRESS_MS = 550;
 const MAX_OPEN_BOOKS = 5;
 const LANGUAGE_CHOICES = [
-  { code: "und", flag: "🌐", label: "Other" },
-  { code: "en", flag: "🇬🇧", label: "English" },
-  { code: "es", flag: "🇪🇸", label: "Spanish" },
-  { code: "fr", flag: "🇫🇷", label: "French" },
-  { code: "it", flag: "🇮🇹", label: "Italian" }
+  { code: "und", flagCode: "un", label: "Other" },
+  { code: "en", flagCode: "gb", label: "English" },
+  { code: "es", flagCode: "es", label: "Spanish" },
+  { code: "fr", flagCode: "fr", label: "French" },
+  { code: "it", flagCode: "it", label: "Italian" }
 ];
 const DICTIONARY_LANGUAGE_CHOICES = LANGUAGE_CHOICES.filter(
   (language) => language.code !== "und"
 );
 const SPANISH_VOICE_REGIONS: {
   code: SpanishVoiceRegion;
-  flag: string;
+  flagCode: string;
   label: string;
 }[] = [
-  { code: "es-AR", flag: "🇦🇷", label: "Argentina" },
-  { code: "es", flag: "🇪🇸", label: "Spain" },
-  { code: "es-MX", flag: "🇲🇽", label: "Mexico" }
+  { code: "es-AR", flagCode: "ar", label: "Argentina" },
+  { code: "es", flagCode: "es", label: "Spain" },
+  { code: "es-MX", flagCode: "mx", label: "Mexico" }
 ];
+
+function FlagIcon({ className, code }: { className?: string; code: string }) {
+  return (
+    <img alt="" aria-hidden="true" className={className} src={`/flags/${code}.svg`} />
+  );
+}
 
 function App() {
   const [books, setBooks] = useState<BookSource[]>([]);
@@ -1183,7 +1189,7 @@ function BookMetadataDialog({
                   <button
                     aria-checked={isSelected}
                     aria-label={language.label}
-                    className={`grid h-10 w-10 place-items-center border text-xl outline-none transition-colors ${
+                    className={`grid h-10 w-10 place-items-center border outline-none transition-colors ${
                       isSelected
                         ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
                         : "border-neutral-300 dark:border-neutral-700"
@@ -1193,7 +1199,7 @@ function BookMetadataDialog({
                     role="radio"
                     type="button"
                   >
-                    <span aria-hidden="true">{language.flag}</span>
+                    <FlagIcon className="h-6 w-6" code={language.flagCode} />
                   </button>
                 );
               })}
@@ -1219,7 +1225,7 @@ function BookMetadataDialog({
                   <button
                     aria-checked={isSelected}
                     aria-label={language.label}
-                    className={`grid h-10 w-10 place-items-center border text-xl outline-none transition-colors ${
+                    className={`grid h-10 w-10 place-items-center border outline-none transition-colors ${
                       isSelected
                         ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
                         : "border-neutral-300 dark:border-neutral-700"
@@ -1229,7 +1235,7 @@ function BookMetadataDialog({
                     role="radio"
                     type="button"
                   >
-                    <span aria-hidden="true">{language.flag}</span>
+                    <FlagIcon className="h-6 w-6" code={language.flagCode} />
                   </button>
                 );
               })}
@@ -1268,7 +1274,7 @@ function BookMetadataDialog({
                 <button
                   aria-label={region.label}
                   aria-pressed={spanishVoiceRegion === region.code}
-                  className={`grid h-14 w-14 place-items-center border text-3xl outline-none transition-colors ${
+                  className={`grid h-14 w-14 place-items-center border outline-none transition-colors ${
                     spanishVoiceRegion === region.code
                       ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
                       : "border-neutral-300 dark:border-neutral-700"
@@ -1280,7 +1286,7 @@ function BookMetadataDialog({
                   }}
                   type="button"
                 >
-                  {region.flag}
+                  <FlagIcon className="h-9 w-9" code={region.flagCode} />
                 </button>
               ))}
             </div>
@@ -1443,9 +1449,7 @@ function SpanishRegionReel({
             key={`${region.code}-${index}`}
             style={{ height: SPANISH_REEL_ROW_HEIGHT }}
           >
-            <span aria-hidden="true" className="text-lg">
-              {region.flag}
-            </span>
+            <FlagIcon className="h-4 w-4" code={region.flagCode} />
           </div>
         ))}
       </div>
