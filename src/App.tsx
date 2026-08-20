@@ -1154,11 +1154,13 @@ function BookMetadataDialog({
 
           <label className="block">
             <span className="block text-sm text-neutral-500 dark:text-neutral-400">
-              Book language
+              Book language:{" "}
+              {LANGUAGE_CHOICES.find((language) => language.code === languageCode)
+                ?.label ?? "Other"}
             </span>
             <div
               aria-label="Book language"
-              className="mt-3 flex justify-center gap-3"
+              className="mt-3 flex justify-center gap-2"
               role="radiogroup"
             >
               {LANGUAGE_CHOICES.map((language) => {
@@ -1181,7 +1183,7 @@ function BookMetadataDialog({
                   <button
                     aria-checked={isSelected}
                     aria-label={language.label}
-                    className={`grid h-12 w-12 place-items-center border text-2xl outline-none transition-colors ${
+                    className={`grid h-10 w-10 place-items-center border text-xl outline-none transition-colors ${
                       isSelected
                         ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
                         : "border-neutral-300 dark:border-neutral-700"
@@ -1200,11 +1202,14 @@ function BookMetadataDialog({
 
           <label className="block">
             <span className="block text-sm text-neutral-500 dark:text-neutral-400">
-              Translate to
+              Translate to{" "}
+              {DICTIONARY_LANGUAGE_CHOICES.find(
+                (language) => language.code === dictionaryLanguageCode
+              )?.label ?? ""}
             </span>
             <div
               aria-label="Dictionary language"
-              className="mt-3 flex justify-center gap-3"
+              className="mt-3 flex justify-center gap-2"
               role="radiogroup"
             >
               {DICTIONARY_LANGUAGE_CHOICES.map((language) => {
@@ -1214,7 +1219,7 @@ function BookMetadataDialog({
                   <button
                     aria-checked={isSelected}
                     aria-label={language.label}
-                    className={`grid h-12 w-12 place-items-center border text-2xl outline-none transition-colors ${
+                    className={`grid h-10 w-10 place-items-center border text-xl outline-none transition-colors ${
                       isSelected
                         ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
                         : "border-neutral-300 dark:border-neutral-700"
@@ -1311,8 +1316,8 @@ function BookMetadataDialog({
   );
 }
 
-const SPANISH_REEL_ROW_HEIGHT = 24;
-const SPANISH_REEL_PEEK = 12;
+const SPANISH_REEL_ROW_HEIGHT = 20;
+const SPANISH_REEL_PEEK = 10;
 const SPANISH_REEL_LOOPED_REGIONS = [
   ...SPANISH_VOICE_REGIONS,
   ...SPANISH_VOICE_REGIONS,
@@ -1412,7 +1417,7 @@ function SpanishRegionReel({
     <button
       aria-checked={isSelected}
       aria-label="Spanish"
-      className={`relative grid h-12 w-12 place-items-center overflow-hidden border outline-none transition-colors ${
+      className={`relative grid h-10 w-10 place-items-center overflow-hidden border outline-none transition-colors ${
         isSelected
           ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
           : "border-neutral-300 dark:border-neutral-700"
@@ -1438,7 +1443,7 @@ function SpanishRegionReel({
             key={`${region.code}-${index}`}
             style={{ height: SPANISH_REEL_ROW_HEIGHT }}
           >
-            <span aria-hidden="true" className="text-xl">
+            <span aria-hidden="true" className="text-lg">
               {region.flag}
             </span>
           </div>
