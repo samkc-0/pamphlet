@@ -116,6 +116,7 @@ type FontFamily = "sans" | "serif";
 
 type BookMetadataEdit = {
   author: string;
+  dictionaryLanguageCode: string;
   fontFamily: FontFamily;
   languageCode: string;
   spanishVoiceRegion: SpanishVoiceRegion;
@@ -130,6 +131,7 @@ type PersistedAppState = {
   bookMetadataEdits: Record<string, BookMetadataEdit>;
   hasSeededDemoBook: boolean;
   isDarkMode: boolean;
+  lastDictionaryLanguageCode: string;
   lastSpanishVoiceRegion: SpanishVoiceRegion;
   openBookIds: string[];
   savedPageByBookId: Record<string, string>;
@@ -148,6 +150,9 @@ const LANGUAGE_CHOICES = [
   { code: "fr", flag: "🇫🇷", label: "French" },
   { code: "it", flag: "🇮🇹", label: "Italian" }
 ];
+const DICTIONARY_LANGUAGE_CHOICES = LANGUAGE_CHOICES.filter(
+  (language) => language.code !== "und"
+);
 const SPANISH_VOICE_REGIONS: {
   code: SpanishVoiceRegion;
   flag: string;
@@ -180,6 +185,8 @@ function App() {
     useState<SpanishVoiceRegion>(
       () => defaultPersistedState.lastSpanishVoiceRegion
     );
+  const [lastDictionaryLanguageCode, setLastDictionaryLanguageCode] =
+    useState(() => defaultPersistedState.lastDictionaryLanguageCode);
   const [hasSeededDemoBook, setHasSeededDemoBook] = useState(
     () => defaultPersistedState.hasSeededDemoBook
   );
@@ -223,6 +230,7 @@ function App() {
       setBookMetadataEdits(persistedState.bookMetadataEdits);
       setHasSeededDemoBook(persistedState.hasSeededDemoBook);
       setIsDarkMode(persistedState.isDarkMode);
+      setLastDictionaryLanguageCode(persistedState.lastDictionaryLanguageCode);
       setLastSpanishVoiceRegion(persistedState.lastSpanishVoiceRegion);
       setOpenBookIds(persistedState.openBookIds);
       setSavedPageByBookId(persistedState.savedPageByBookId);
@@ -399,6 +407,7 @@ function App() {
       bookMetadataEdits,
       hasSeededDemoBook,
       isDarkMode,
+      lastDictionaryLanguageCode,
       lastSpanishVoiceRegion,
       openBookIds,
       savedPageByBookId,
@@ -427,6 +436,7 @@ function App() {
     hasSeededDemoBook,
     isStateLoaded,
     isDarkMode,
+    lastDictionaryLanguageCode,
     lastSpanishVoiceRegion,
     openBookIds,
     savedPageByBookId
@@ -530,6 +540,7 @@ function App() {
         [bookId]: metadata
       }));
       setLastSpanishVoiceRegion(metadata.spanishVoiceRegion);
+      setLastDictionaryLanguageCode(metadata.dictionaryLanguageCode);
       setEditingBookId(null);
     },
     []
@@ -559,7 +570,8 @@ function App() {
         editingBook,
         editingLoadedBook,
         bookMetadataEdits[editingBook.id],
-        lastSpanishVoiceRegion
+        lastSpanishVoiceRegion,
+        lastDictionaryLanguageCode
       )
     : undefined;
   const isBookLoading = openBookIds.some((bookId) => {
@@ -582,6 +594,7 @@ function App() {
         isDarkMode,
         isSyncingState,
         isUploadingBooks,
+        lastDictionaryLanguageCode,
         lastSpanishVoiceRegion,
         loadedBooks,
         openBookIds,
@@ -607,6 +620,7 @@ function App() {
       isSyncingState,
       isUploadingBooks,
       jumpToBookPage,
+      lastDictionaryLanguageCode,
       lastSpanishVoiceRegion,
       loadedBooks,
       openBookIds,
@@ -697,6 +711,7 @@ function createArticleRows({
   isSyncingState,
   isUploadingBooks,
   jumpToBookPage,
+  lastDictionaryLanguageCode,
   lastSpanishVoiceRegion,
   loadedBooks,
   openBookIds,
@@ -719,6 +734,7 @@ function createArticleRows({
   isSyncingState: boolean;
   isUploadingBooks: boolean;
   jumpToBookPage: (bookId: string, pageId: string) => void;
+  lastDictionaryLanguageCode: string;
   lastSpanishVoiceRegion: SpanishVoiceRegion;
   loadedBooks: Record<string, LoadedBook>;
   openBookIds: string[];
@@ -775,6 +791,7 @@ function createArticleRows({
                 pageTotal={pages.length}
                 activePageByRowId={activePageByRowId}
                 bookMetadataEdits={bookMetadataEdits}
+                lastDictionaryLanguageCode={lastDictionaryLanguageCode}
                 lastSpanishVoiceRegion={lastSpanishVoiceRegion}
                 loadedBooks={loadedBooks}
                 openBookSettings={openBookSettings}
@@ -801,7 +818,8 @@ function createArticleRows({
           savedPageByBookId[book.id],
           jumpToBookPage,
           autoPlayWordAudio,
-          lastSpanishVoiceRegion
+          lastSpanishVoiceRegion,
+          lastDictionaryLanguageCode
         )
       )
   ];
@@ -816,13 +834,15 @@ function createBookRow(
   savedPageId?: string,
   jumpToBookPage?: (bookId: string, pageId: string) => void,
   autoPlayWordAudio?: boolean,
-  lastSpanishVoiceRegion?: SpanishVoiceRegion
+  lastSpanishVoiceRegion?: SpanishVoiceRegion,
+  lastDictionaryLanguageCode?: string
 ): WorkspaceRow {
   const metadata = getBookMetadata(
     book,
     loadedBook,
     metadataEdit,
-    lastSpanishVoiceRegion
+    lastSpanishVoiceRegion,
+    lastDictionaryLanguageCode
   );
 
   if (pages?.length) {
@@ -835,6 +855,7 @@ function createBookRow(
           <ReaderScreen
             author={metadata.author}
             autoPlayWordAudio={Boolean(autoPlayWordAudio)}
+            dictionaryLanguageCode={metadata.dictionaryLanguageCode}
             fontFamily={metadata.fontFamily}
             isSyncingState={Boolean(isSyncingState)}
             languageCode={metadata.languageCode}
@@ -1035,6 +1056,9 @@ function BookMetadataDialog({
   onSave: (bookId: string, metadata: BookMetadataEdit) => void;
 }) {
   const [author, setAuthor] = useState(metadata.author);
+  const [dictionaryLanguageCode, setDictionaryLanguageCode] = useState(
+    metadata.dictionaryLanguageCode
+  );
   const [fontFamily, setFontFamily] = useState(metadata.fontFamily);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isRegionPickerOpen, setIsRegionPickerOpen] = useState(false);
@@ -1062,6 +1086,7 @@ function BookMetadataDialog({
 
     onSave(book.id, {
       author: author.trim(),
+      dictionaryLanguageCode,
       fontFamily,
       languageCode: getSupportedLanguageCode(languageCode),
       spanishVoiceRegion,
@@ -1129,7 +1154,7 @@ function BookMetadataDialog({
 
           <label className="block">
             <span className="block text-sm text-neutral-500 dark:text-neutral-400">
-              Language
+              Book language
             </span>
             <div
               aria-label="Book language"
@@ -1163,6 +1188,39 @@ function BookMetadataDialog({
                     } focus-visible:border-neutral-950 dark:focus-visible:border-neutral-100`}
                     key={language.code}
                     onClick={() => setLanguageCode(language.code)}
+                    role="radio"
+                    type="button"
+                  >
+                    <span aria-hidden="true">{language.flag}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </label>
+
+          <label className="block">
+            <span className="block text-sm text-neutral-500 dark:text-neutral-400">
+              Translate to
+            </span>
+            <div
+              aria-label="Dictionary language"
+              className="mt-3 flex justify-center gap-3"
+              role="radiogroup"
+            >
+              {DICTIONARY_LANGUAGE_CHOICES.map((language) => {
+                const isSelected = language.code === dictionaryLanguageCode;
+
+                return (
+                  <button
+                    aria-checked={isSelected}
+                    aria-label={language.label}
+                    className={`grid h-12 w-12 place-items-center border text-2xl outline-none transition-colors ${
+                      isSelected
+                        ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
+                        : "border-neutral-300 dark:border-neutral-700"
+                    } focus-visible:border-neutral-950 dark:focus-visible:border-neutral-100`}
+                    key={language.code}
+                    onClick={() => setDictionaryLanguageCode(language.code)}
                     role="radio"
                     type="button"
                   >
@@ -1431,6 +1489,7 @@ function LibraryScreen({
   activePageByRowId,
   bookMetadataEdits,
   books,
+  lastDictionaryLanguageCode,
   lastSpanishVoiceRegion,
   loadedBooks,
   openBookSettings,
@@ -1444,6 +1503,7 @@ function LibraryScreen({
   activePageByRowId: Record<string, string>;
   bookMetadataEdits: Record<string, BookMetadataEdit>;
   books: BookSource[];
+  lastDictionaryLanguageCode: string;
   lastSpanishVoiceRegion: SpanishVoiceRegion;
   loadedBooks: Record<string, LoadedBook>;
   openBookSettings: (bookId: string) => void;
@@ -1541,7 +1601,8 @@ function LibraryScreen({
               book,
               loadedBook,
               bookMetadataEdits[book.id],
-              lastSpanishVoiceRegion
+              lastSpanishVoiceRegion,
+              lastDictionaryLanguageCode
             );
             const pages = paginatedBooks[book.id]?.pages ?? [];
             const activePageId =
@@ -1616,6 +1677,7 @@ function ReaderScreen({
   author,
   autoPlayWordAudio,
   chapterTitle,
+  dictionaryLanguageCode,
   fontFamily,
   isSyncingState,
   languageCode,
@@ -1629,6 +1691,7 @@ function ReaderScreen({
   author: string;
   autoPlayWordAudio: boolean;
   chapterTitle?: string;
+  dictionaryLanguageCode: string;
   fontFamily: FontFamily;
   isSyncingState: boolean;
   languageCode: string;
@@ -1773,14 +1836,14 @@ function ReaderScreen({
   };
 
   const translateSelection = (text: string, anchorRect: DOMRect) => {
-    if (languageCode === "en" || languageCode === "und") {
+    if (languageCode === dictionaryLanguageCode || languageCode === "und") {
       setSentenceLookup({
         anchorRect,
         error:
-          languageCode === "en"
-            ? "No translation needed for English text."
-            : "Set a book language to translate text.",
-        languageCode,
+          languageCode === "und"
+            ? "Set a book language to translate text."
+            : "Text is already in your dictionary language.",
+        isInstructional: true,
         sentence: text,
         status: "error"
       });
@@ -1789,12 +1852,11 @@ function ReaderScreen({
 
     setSentenceLookup({
       anchorRect,
-      languageCode,
       sentence: text,
       status: "loading"
     });
 
-    translateText(text, languageCode)
+    translateText(text, languageCode, dictionaryLanguageCode)
       .then((result) => {
         setSentenceLookup((current) =>
           current && current.sentence === text
@@ -1866,7 +1928,7 @@ function ReaderScreen({
       word
     });
 
-    lookupWord(word, languageCode)
+    lookupWord(word, languageCode, dictionaryLanguageCode)
       .then((result) => {
         setLookup((current) =>
           current && current.word === word
@@ -2107,6 +2169,7 @@ function getDefaultPersistedAppState(): PersistedAppState {
     bookMetadataEdits: {},
     hasSeededDemoBook: false,
     isDarkMode: false,
+    lastDictionaryLanguageCode: "en",
     lastSpanishVoiceRegion: "es",
     openBookIds: [],
     savedPageByBookId: {},
@@ -2244,6 +2307,11 @@ function normalizePersistedAppState(
       typeof state.isDarkMode === "boolean"
         ? state.isDarkMode
         : defaultState.isDarkMode,
+    lastDictionaryLanguageCode: isDictionaryLanguageCode(
+      state.lastDictionaryLanguageCode
+    )
+      ? state.lastDictionaryLanguageCode
+      : defaultState.lastDictionaryLanguageCode,
     lastSpanishVoiceRegion: isSpanishVoiceRegion(state.lastSpanishVoiceRegion)
       ? state.lastSpanishVoiceRegion
       : defaultState.lastSpanishVoiceRegion,
@@ -2255,6 +2323,10 @@ function normalizePersistedAppState(
 
 function isSpanishVoiceRegion(value: unknown): value is SpanishVoiceRegion {
   return value === "es" || value === "es-AR" || value === "es-MX";
+}
+
+function isDictionaryLanguageCode(value: unknown): value is string {
+  return DICTIONARY_LANGUAGE_CHOICES.some((language) => language.code === value);
 }
 
 function getPersistedOpenBookIds(value: unknown) {
@@ -2293,6 +2365,11 @@ function getPersistedBookMetadataEdits(value: unknown) {
     ) {
       edits[bookId] = {
         author,
+        dictionaryLanguageCode: isDictionaryLanguageCode(
+          metadata.dictionaryLanguageCode
+        )
+          ? metadata.dictionaryLanguageCode
+          : "en",
         fontFamily:
           metadata.fontFamily === "sans" || metadata.fontFamily === "serif"
             ? metadata.fontFamily
@@ -2348,13 +2425,16 @@ function getBookMetadata(
   book: BookSource,
   loadedBook?: LoadedBook,
   metadataEdit?: BookMetadataEdit,
-  lastSpanishVoiceRegion: SpanishVoiceRegion = "es"
+  lastSpanishVoiceRegion: SpanishVoiceRegion = "es",
+  lastDictionaryLanguageCode = "en"
 ): BookMetadataEdit {
   return {
     author:
       metadataEdit?.author.trim() ||
       loadedBook?.data?.author?.trim() ||
       book.author,
+    dictionaryLanguageCode:
+      metadataEdit?.dictionaryLanguageCode ?? lastDictionaryLanguageCode,
     fontFamily: metadataEdit?.fontFamily ?? "serif",
     languageCode: normalizeLanguageCode(
       metadataEdit?.languageCode.trim() ||

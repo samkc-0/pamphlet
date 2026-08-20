@@ -11,18 +11,22 @@ type DictionaryApiEntry = {
 
 export async function lookupWord(
   word: string,
-  languageCode: string
+  bookLanguageCode: string,
+  dictionaryLanguageCode: string
 ): Promise<WordLookupResult> {
-  if (languageCode === "en" || languageCode === "und") {
-    return lookupDefinition(word);
+  if (bookLanguageCode === dictionaryLanguageCode) {
+    return lookupDefinition(word, dictionaryLanguageCode);
   }
 
-  return translateText(word, languageCode);
+  return translateText(word, bookLanguageCode, dictionaryLanguageCode);
 }
 
-async function lookupDefinition(word: string): Promise<WordLookupResult> {
+async function lookupDefinition(
+  word: string,
+  languageCode: string
+): Promise<WordLookupResult> {
   const response = await fetchWithRetry(
-    `https://api.dictionaryapi.dev/api/v2/entries/en/${encodeURIComponent(word)}`
+    `https://api.dictionaryapi.dev/api/v2/entries/${languageCode}/${encodeURIComponent(word)}`
   );
 
   if (!response.ok) {
@@ -45,12 +49,13 @@ async function lookupDefinition(word: string): Promise<WordLookupResult> {
 
 export async function translateText(
   text: string,
-  languageCode: string
+  sourceLanguageCode: string,
+  targetLanguageCode: string
 ): Promise<WordLookupResult> {
   const url = new URL("https://translate.googleapis.com/translate_a/single");
   url.searchParams.set("client", "gtx");
-  url.searchParams.set("sl", languageCode);
-  url.searchParams.set("tl", "en");
+  url.searchParams.set("sl", sourceLanguageCode);
+  url.searchParams.set("tl", targetLanguageCode);
   url.searchParams.set("dt", "t");
   url.searchParams.set("q", text);
 

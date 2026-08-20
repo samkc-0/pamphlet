@@ -3,7 +3,7 @@ import { usePopupPosition } from "@/lib/use-popup-position";
 export type SentenceLookupState = {
   anchorRect: DOMRect;
   error?: string;
-  languageCode: string;
+  isInstructional?: boolean;
   result?: string;
   sentence: string;
   status: "error" | "loading" | "ready";
@@ -17,7 +17,7 @@ export function SentenceLookupPopup({
   onDismiss: () => void;
 }) {
   const { popupRef, position } = usePopupPosition(lookup.anchorRect);
-  const isMuted = lookup.languageCode === "en" || lookup.languageCode === "und";
+  const isMuted = Boolean(lookup.isInstructional);
 
   return (
     <div className="fixed inset-0 z-40" onClick={onDismiss}>
