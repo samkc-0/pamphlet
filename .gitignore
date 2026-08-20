@@ -5,5 +5,5 @@ dist
 
 *.tsbuildinfo
 public/books/*
-!public/books/Le_Colonel_Chabert.epub
+!public/books/demo.epub
 public/book-assets/

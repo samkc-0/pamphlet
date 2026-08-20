@@ -136,7 +136,8 @@ type PersistedAppState = {
   version: 1;
 };
 
-const DEMO_BOOK_PATH = "/books/Le_Colonel_Chabert.epub";
+const DEMO_BOOK_FILE_NAME = "demo.epub";
+const DEMO_BOOK_PATH = `/books/${DEMO_BOOK_FILE_NAME}`;
 const LIBRARY_BOOKS_PER_PAGE = 5;
 const LONG_PRESS_MS = 550;
 const MAX_OPEN_BOOKS = 5;
@@ -2124,8 +2125,9 @@ async function seedDemoBook() {
   const data = await response.arrayBuffer();
   const metadata = await loadEpubFromArrayBuffer(data.slice(0));
   const fingerprint = fingerprintArrayBuffer(data);
-  const title = metadata.title?.trim() || "Le Colonel Chabert";
-  const author = metadata.author?.trim() || "Honoré de Balzac";
+  const title =
+    metadata.title?.trim() || DEMO_BOOK_FILE_NAME.replace(/\.epub$/i, "");
+  const author = metadata.author?.trim() || "Unknown";
   const now = Date.now();
   const id = `${slugify(title)}-${fingerprint.slice(0, 12)}`;
 
@@ -2133,7 +2135,7 @@ async function seedDemoBook() {
     book: {
       author,
       createdAt: now,
-      fileName: "Le_Colonel_Chabert.epub",
+      fileName: DEMO_BOOK_FILE_NAME,
       fingerprint,
       id,
       language: metadata.language,
