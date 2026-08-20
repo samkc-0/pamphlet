@@ -144,7 +144,7 @@ const LIBRARY_BOOKS_PER_PAGE = 5;
 const LONG_PRESS_MS = 550;
 const MAX_OPEN_BOOKS = 5;
 const LANGUAGE_CHOICES = [
-  { code: "und", flagCode: "un", label: "Other" },
+  { code: "und", flagCode: "un", label: "Unsupported" },
   { code: "en", flagCode: "gb", label: "English" },
   { code: "es", flagCode: "es", label: "Spanish" },
   { code: "fr", flagCode: "fr", label: "French" },
@@ -1162,7 +1162,7 @@ function BookMetadataDialog({
             <span className="block text-sm text-neutral-500 dark:text-neutral-400">
               Book language:{" "}
               {LANGUAGE_CHOICES.find((language) => language.code === languageCode)
-                ?.label ?? "Other"}
+                ?.label ?? "Unsupported"}
             </span>
             <div
               aria-label="Book language"
@@ -1208,7 +1208,7 @@ function BookMetadataDialog({
 
           <label className="block">
             <span className="block text-sm text-neutral-500 dark:text-neutral-400">
-              Translate to{" "}
+              Dictionary:{" "}
               {DICTIONARY_LANGUAGE_CHOICES.find(
                 (language) => language.code === dictionaryLanguageCode
               )?.label ?? ""}
