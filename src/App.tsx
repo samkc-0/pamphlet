@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, MouseEvent, PointerEvent } from "react";
-import { Settings } from "lucide-react";
+import { Settings, UserRound } from "lucide-react";
 
 import type { BookSource } from "@/books";
 import {
@@ -1024,7 +1024,14 @@ function SettingsScreen({
 
         <fieldset className="mx-auto mt-6 max-w-md border border-neutral-300 px-6 pb-7 pt-5 dark:border-neutral-700">
           <legend className="mx-auto px-3 text-neutral-500 dark:text-neutral-400">
-            Account
+            <span className="inline-grid h-10 w-10 place-items-center">
+              <UserRound
+                aria-label="Account"
+                className="h-7 w-7"
+                role="img"
+                strokeWidth={1.75}
+              />
+            </span>
           </legend>
 
           {currentUser ? (
