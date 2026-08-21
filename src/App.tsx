@@ -35,12 +35,16 @@ import { paginateBookByLayout, type ReaderPage } from "@/lib/pagination";
 import { loadPinnedWords, setWordPinned } from "@/lib/pinned-words";
 import { speakWord } from "@/lib/speech";
 import {
+  AUTH_POPUP_MESSAGE_TYPE,
   clearStoredSessionToken,
   consumeSessionTokenFromLocation,
   endSession,
   fetchCurrentUser,
   getGoogleSignInUrl,
+  getSyncApiOrigin,
   getStoredSessionToken,
+  openGoogleSignInPopup,
+  setStoredSessionToken,
   type SyncUser
 } from "@/lib/sync-client";
 import {
@@ -252,6 +256,38 @@ function App() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    const syncApiOrigin = getSyncApiOrigin();
+
+    function onAuthMessage(event: MessageEvent) {
+      if (event.origin !== syncApiOrigin) return;
+
+      const data = event.data as { token?: unknown; type?: unknown } | null;
+
+      if (data?.type !== AUTH_POPUP_MESSAGE_TYPE) return;
+      if (typeof data.token !== "string") return;
+
+      setStoredSessionToken(data.token);
+      fetchCurrentUser(data.token).then((user) => {
+        if (user) setCurrentUser(user);
+      });
+    }
+
+    window.addEventListener("message", onAuthMessage);
+
+    return () => {
+      window.removeEventListener("message", onAuthMessage);
+    };
+  }, []);
+
+  const signIn = useCallback(() => {
+    const popup = openGoogleSignInPopup();
+
+    if (!popup) {
+      window.location.href = getGoogleSignInUrl();
+    }
   }, []);
 
   const signOut = useCallback(() => {
@@ -652,6 +688,7 @@ function App() {
         openBookSettings: setEditingBookId,
         paginatedBooks,
         savedPageByBookId,
+        signIn,
         signOut,
         toggleAnimations,
         toggleAutoPlayWordAudio,
@@ -677,6 +714,7 @@ function App() {
       openBookIds,
       paginatedBooks,
       savedPageByBookId,
+      signIn,
       signOut,
       toggleAnimations,
       toggleAutoPlayWordAudio,
@@ -771,6 +809,7 @@ function createArticleRows({
   openBookSettings,
   paginatedBooks,
   savedPageByBookId,
+  signIn,
   signOut,
   toggleAnimations,
   toggleAutoPlayWordAudio,
@@ -796,6 +835,7 @@ function createArticleRows({
   openBookSettings: (bookId: string) => void;
   paginatedBooks: Record<string, PaginatedBook>;
   savedPageByBookId: Record<string, string>;
+  signIn: () => void;
   signOut: () => void;
   toggleAnimations: () => void;
   toggleAutoPlayWordAudio: () => void;
@@ -816,6 +856,7 @@ function createArticleRows({
               autoPlayWordAudio={autoPlayWordAudio}
               currentUser={currentUser}
               isDarkMode={isDarkMode}
+              signIn={signIn}
               signOut={signOut}
               toggleAnimations={toggleAnimations}
               toggleAutoPlayWordAudio={toggleAutoPlayWordAudio}
@@ -960,6 +1001,7 @@ function SettingsScreen({
   autoPlayWordAudio,
   currentUser,
   isDarkMode,
+  signIn,
   signOut,
   toggleAnimations,
   toggleAutoPlayWordAudio,
@@ -969,6 +1011,7 @@ function SettingsScreen({
   autoPlayWordAudio: boolean;
   currentUser: SyncUser | null;
   isDarkMode: boolean;
+  signIn: () => void;
   signOut: () => void;
   toggleAnimations: () => void;
   toggleAutoPlayWordAudio: () => void;
@@ -1041,12 +1084,13 @@ function SettingsScreen({
               </button>
             </div>
           ) : (
-            <a
+            <button
               className="mx-auto block text-lg leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400"
-              href={getGoogleSignInUrl()}
+              onClick={signIn}
+              type="button"
             >
               Sign in with Google
-            </a>
+            </button>
           )}
         </fieldset>
       </div>
