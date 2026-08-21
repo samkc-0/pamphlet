@@ -35,6 +35,15 @@ import { paginateBookByLayout, type ReaderPage } from "@/lib/pagination";
 import { loadPinnedWords, setWordPinned } from "@/lib/pinned-words";
 import { speakWord } from "@/lib/speech";
 import {
+  clearStoredSessionToken,
+  consumeSessionTokenFromLocation,
+  endSession,
+  fetchCurrentUser,
+  getGoogleSignInUrl,
+  getStoredSessionToken,
+  type SyncUser
+} from "@/lib/sync-client";
+import {
   normalizeWord,
   tokenizeParagraphWithOffsets
 } from "@/lib/tokenize";
@@ -222,6 +231,39 @@ function App() {
   const pageJumpSerial = useRef(0);
   const syncIndicatorTimer = useRef<number | null>(null);
   const [viewportKey, setViewportKey] = useState(() => getViewportKey());
+  const [currentUser, setCurrentUser] = useState<SyncUser | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const token = consumeSessionTokenFromLocation() ?? getStoredSessionToken();
+
+    if (!token) return;
+
+    fetchCurrentUser(token).then((user) => {
+      if (cancelled) return;
+
+      if (user) {
+        setCurrentUser(user);
+      } else {
+        clearStoredSessionToken();
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const signOut = useCallback(() => {
+    const token = getStoredSessionToken();
+
+    clearStoredSessionToken();
+    setCurrentUser(null);
+
+    if (token) {
+      endSession(token);
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -597,6 +639,7 @@ function App() {
         autoPlayWordAudio,
         books,
         bookMetadataEdits,
+        currentUser,
         isDarkMode,
         isSyncingState,
         isUploadingBooks,
@@ -609,6 +652,7 @@ function App() {
         openBookSettings: setEditingBookId,
         paginatedBooks,
         savedPageByBookId,
+        signOut,
         toggleAnimations,
         toggleAutoPlayWordAudio,
         toggleDarkMode,
@@ -622,6 +666,7 @@ function App() {
       autoPlayWordAudio,
       books,
       bookMetadataEdits,
+      currentUser,
       isDarkMode,
       isSyncingState,
       isUploadingBooks,
@@ -632,6 +677,7 @@ function App() {
       openBookIds,
       paginatedBooks,
       savedPageByBookId,
+      signOut,
       toggleAnimations,
       toggleAutoPlayWordAudio,
       toggleDarkMode,
@@ -687,6 +733,13 @@ function App() {
         pageJump={pageJump}
         rows={rows}
       />
+      {currentUser ? (
+        <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-3 pt-2">
+          <span className="pointer-events-none rounded-full bg-neutral-900/80 px-3 py-1 text-xs text-neutral-100 dark:bg-neutral-100/80 dark:text-neutral-900">
+            Welcome {currentUser.name || currentUser.email}
+          </span>
+        </div>
+      ) : null}
       {isBookLoading ? (
         <LoadingScreen
           animationsEnabled={animationsEnabled}
@@ -713,6 +766,7 @@ function createArticleRows({
   autoPlayWordAudio,
   books,
   bookMetadataEdits,
+  currentUser,
   isDarkMode,
   isSyncingState,
   isUploadingBooks,
@@ -724,6 +778,7 @@ function createArticleRows({
   openBookSettings,
   paginatedBooks,
   savedPageByBookId,
+  signOut,
   toggleAnimations,
   toggleAutoPlayWordAudio,
   toggleDarkMode,
@@ -736,6 +791,7 @@ function createArticleRows({
   autoPlayWordAudio: boolean;
   books: BookSource[];
   bookMetadataEdits: Record<string, BookMetadataEdit>;
+  currentUser: SyncUser | null;
   isDarkMode: boolean;
   isSyncingState: boolean;
   isUploadingBooks: boolean;
@@ -747,6 +803,7 @@ function createArticleRows({
   openBookSettings: (bookId: string) => void;
   paginatedBooks: Record<string, PaginatedBook>;
   savedPageByBookId: Record<string, string>;
+  signOut: () => void;
   toggleAnimations: () => void;
   toggleAutoPlayWordAudio: () => void;
   toggleDarkMode: () => void;
@@ -764,7 +821,9 @@ function createArticleRows({
             <SettingsScreen
               animationsEnabled={animationsEnabled}
               autoPlayWordAudio={autoPlayWordAudio}
+              currentUser={currentUser}
               isDarkMode={isDarkMode}
+              signOut={signOut}
               toggleAnimations={toggleAnimations}
               toggleAutoPlayWordAudio={toggleAutoPlayWordAudio}
               toggleDarkMode={toggleDarkMode}
@@ -906,14 +965,18 @@ function createBookRow(
 function SettingsScreen({
   animationsEnabled,
   autoPlayWordAudio,
+  currentUser,
   isDarkMode,
+  signOut,
   toggleAnimations,
   toggleAutoPlayWordAudio,
   toggleDarkMode
 }: {
   animationsEnabled: boolean;
   autoPlayWordAudio: boolean;
+  currentUser: SyncUser | null;
   isDarkMode: boolean;
+  signOut: () => void;
   toggleAnimations: () => void;
   toggleAutoPlayWordAudio: () => void;
   toggleDarkMode: () => void;
@@ -957,6 +1020,34 @@ function SettingsScreen({
               Word audio auto-play {autoPlayWordAudio ? "on" : "off"}
             </button>
           </div>
+        </fieldset>
+
+        <fieldset className="mx-auto mt-6 max-w-md border border-neutral-300 px-6 pb-7 pt-5 dark:border-neutral-700">
+          <legend className="mx-auto px-3 text-neutral-500 dark:text-neutral-400">
+            Account
+          </legend>
+
+          {currentUser ? (
+            <div className="space-y-3">
+              <p className="text-sm text-neutral-600 dark:text-neutral-400">
+                Signed in as {currentUser.email}
+              </p>
+              <button
+                className="mx-auto block text-lg leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400"
+                onClick={signOut}
+                type="button"
+              >
+                Sign out
+              </button>
+            </div>
+          ) : (
+            <a
+              className="mx-auto block text-lg leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400"
+              href={getGoogleSignInUrl()}
+            >
+              Sign in with Google
+            </a>
+          )}
         </fieldset>
       </div>
     </div>
