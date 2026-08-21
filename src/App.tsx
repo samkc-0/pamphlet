@@ -733,13 +733,6 @@ function App() {
         pageJump={pageJump}
         rows={rows}
       />
-      {currentUser ? (
-        <div className="pointer-events-none fixed inset-x-0 top-0 z-50 flex justify-center px-3 pt-2">
-          <span className="pointer-events-none rounded-full bg-neutral-900/80 px-3 py-1 text-xs text-neutral-100 dark:bg-neutral-100/80 dark:text-neutral-900">
-            Welcome {currentUser.name || currentUser.email}
-          </span>
-        </div>
-      ) : null}
       {isBookLoading ? (
         <LoadingScreen
           animationsEnabled={animationsEnabled}
