@@ -13,3 +13,5 @@ public/book-assets/
 # uploaded straight to pamphlet-sync's server (see its DEPLOY.md).
 scripts/dictionary/raw/
 scripts/dictionary/out/
+
+.env
