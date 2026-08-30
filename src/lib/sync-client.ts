@@ -15,6 +15,7 @@ export type SyncedBookSummary = {
   title: string;
   author: string;
   language: string;
+  deleted: boolean;
 };
 
 export type SyncedBookContent = {
@@ -34,6 +35,26 @@ export type SyncedProgress = {
 export type SyncedPinnedWord = {
   languageCode: string;
   word: string;
+  updatedAt: number;
+};
+
+export type SyncedSettings = {
+  animationsEnabled: boolean;
+  autoPlayWordAudio: boolean;
+  isDarkMode: boolean;
+  lastDictionaryLanguageCode: string;
+  lastSpanishVoiceRegion: string;
+  updatedAt: number;
+};
+
+export type SyncedBookMetadata = {
+  contentHash: string;
+  title: string;
+  author: string;
+  languageCode: string;
+  dictionaryLanguageCode: string;
+  fontFamily: string;
+  spanishVoiceRegion: string;
   updatedAt: number;
 };
 
@@ -256,6 +277,130 @@ export async function fetchAllPinnedWords(
   return records.map((record) => ({
     languageCode: record.languageCode,
     word: record.word,
+    updatedAt: fromWireTimestamp(record.updatedAt)
+  }));
+}
+
+/**
+ * Marks a book deleted for the current user, keyed by content hash. Kept
+ * as a soft-delete server-side (see pamphlet-sync's Book model) so other
+ * devices can positively confirm the deletion via fetchBookCatalog's
+ * `deleted` flag rather than inferring it from the book's absence.
+ */
+export async function pushBookDeletion(
+  token: string,
+  contentHash: string,
+  updatedAt: number
+) {
+  await authorizedFetch(
+    `/books/${encodeURIComponent(contentHash)}/delete`,
+    token,
+    {
+      method: "POST",
+      body: JSON.stringify({ updatedAt: toWireTimestamp(updatedAt) })
+    }
+  ).catch((error: unknown) => {
+    console.error("Failed to sync book deletion to server.", error);
+  });
+}
+
+export async function pushSettings(
+  token: string,
+  settings: {
+    animationsEnabled: boolean;
+    autoPlayWordAudio: boolean;
+    isDarkMode: boolean;
+    lastDictionaryLanguageCode: string;
+    lastSpanishVoiceRegion: string;
+    updatedAt: number;
+  }
+) {
+  await authorizedFetch("/settings", token, {
+    method: "POST",
+    body: JSON.stringify({
+      animationsEnabled: settings.animationsEnabled,
+      autoPlayWordAudio: settings.autoPlayWordAudio,
+      isDarkMode: settings.isDarkMode,
+      lastDictionaryLanguageCode: settings.lastDictionaryLanguageCode,
+      lastSpanishVoiceRegion: settings.lastSpanishVoiceRegion,
+      updatedAt: toWireTimestamp(settings.updatedAt)
+    })
+  }).catch((error: unknown) => {
+    console.error("Failed to sync settings to server.", error);
+  });
+}
+
+/** Returns the signed-in user's saved settings, or null if none have been saved yet. */
+export async function fetchSettings(
+  token: string
+): Promise<SyncedSettings | null> {
+  const response = await authorizedFetch("/settings", token);
+  if (!response.ok) return null;
+
+  const record = (await response.json()) as {
+    animationsEnabled: boolean;
+    autoPlayWordAudio: boolean;
+    isDarkMode: boolean;
+    lastDictionaryLanguageCode: string;
+    lastSpanishVoiceRegion: string;
+    updatedAt: string;
+  };
+
+  return { ...record, updatedAt: fromWireTimestamp(record.updatedAt) };
+}
+
+export async function pushBookMetadata(
+  token: string,
+  contentHash: string,
+  metadata: {
+    title: string;
+    author: string;
+    languageCode: string;
+    dictionaryLanguageCode: string;
+    fontFamily: string;
+    spanishVoiceRegion: string;
+    updatedAt: number;
+  }
+) {
+  await authorizedFetch(
+    `/book-metadata/${encodeURIComponent(contentHash)}`,
+    token,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        title: metadata.title,
+        author: metadata.author,
+        languageCode: metadata.languageCode,
+        dictionaryLanguageCode: metadata.dictionaryLanguageCode,
+        fontFamily: metadata.fontFamily,
+        spanishVoiceRegion: metadata.spanishVoiceRegion,
+        updatedAt: toWireTimestamp(metadata.updatedAt)
+      })
+    }
+  ).catch((error: unknown) => {
+    console.error("Failed to sync book metadata to server.", error);
+  });
+}
+
+export async function fetchAllBookMetadata(
+  token: string
+): Promise<SyncedBookMetadata[]> {
+  const response = await authorizedFetch("/book-metadata", token);
+  if (!response.ok) return [];
+
+  const records = (await response.json()) as Array<{
+    contentHash: string;
+    title: string;
+    author: string;
+    languageCode: string;
+    dictionaryLanguageCode: string;
+    fontFamily: string;
+    spanishVoiceRegion: string;
+    updatedAt: string;
+  }>;
+
+  return records.map((record) => ({
+    ...record,
     updatedAt: fromWireTimestamp(record.updatedAt)
   }));
 }

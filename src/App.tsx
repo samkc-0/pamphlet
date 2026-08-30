@@ -52,18 +52,23 @@ import {
   clearStoredSessionToken,
   consumeSessionTokenFromLocation,
   endSession,
+  fetchAllBookMetadata,
   fetchAllPinnedWords,
   fetchAllProgress,
   fetchBookCatalog,
   fetchBookContent,
   fetchCurrentUser,
+  fetchSettings,
   getGoogleSignInUrl,
   getSyncApiOrigin,
   getStoredSessionToken,
   openGoogleSignInPopup,
   pushBook,
+  pushBookDeletion,
+  pushBookMetadata,
   pushPinnedWord,
   pushProgress,
+  pushSettings,
   setStoredSessionToken,
   type SyncUser
 } from "@/lib/sync-client";
@@ -154,6 +159,9 @@ type BookMetadataEdit = {
   languageCode: string;
   spanishVoiceRegion: SpanishVoiceRegion;
   title: string;
+  // Only meaningful for an actual saved edit, not the derived
+  // book+overrides display object getBookMetadata() returns.
+  updatedAt?: number;
 };
 
 // A reading position expressed against a book's deterministic extracted
@@ -279,6 +287,21 @@ function App() {
   const pageJumpSerial = useRef(0);
   const syncIndicatorTimer = useRef<number | null>(null);
   const lastPushedProgressByBookId = useRef<Record<string, number>>({});
+  // Tracks the last settings values this device pushed or pulled, so the
+  // debounced persist effect only pushes when a setting actually changed
+  // (not on every unrelated state change that also triggers that effect),
+  // and so a pull can compare its own updatedAt against ours for
+  // last-write-wins. Deliberately in-memory only, not persisted - settings
+  // are low-stakes enough that losing this baseline across a reload (and
+  // at most re-pushing or re-pulling once) isn't worth persisting for.
+  const settingsBaseline = useRef<{
+    animationsEnabled: boolean;
+    autoPlayWordAudio: boolean;
+    isDarkMode: boolean;
+    lastDictionaryLanguageCode: string;
+    lastSpanishVoiceRegion: SpanishVoiceRegion;
+    updatedAt: number;
+  } | null>(null);
   const [viewportKey, setViewportKey] = useState(() => getViewportKey());
   const [currentUser, setCurrentUser] = useState<SyncUser | null>(null);
 
@@ -367,6 +390,14 @@ function App() {
       setLocallyDeletedContentHashes(
         persistedState.locallyDeletedContentHashes
       );
+      settingsBaseline.current = {
+        animationsEnabled: persistedState.animationsEnabled,
+        autoPlayWordAudio: persistedState.autoPlayWordAudio,
+        isDarkMode: persistedState.isDarkMode,
+        lastDictionaryLanguageCode: persistedState.lastDictionaryLanguageCode,
+        lastSpanishVoiceRegion: persistedState.lastSpanishVoiceRegion,
+        updatedAt: 0
+      };
       setIsStateLoaded(true);
     });
 
@@ -438,20 +469,54 @@ function App() {
     let cancelled = false;
 
     async function pullRemoteState() {
-      const [remoteBooks, remoteProgress, remotePinnedWords, localPinnedRecords] =
-        await Promise.all([
-          fetchBookCatalog(token as string),
-          fetchAllProgress(token as string),
-          fetchAllPinnedWords(token as string),
-          loadAllPinnedWordRecords()
-        ]);
+      const [
+        remoteBooks,
+        remoteProgress,
+        remotePinnedWords,
+        localPinnedRecords,
+        remoteSettings,
+        remoteBookMetadata
+      ] = await Promise.all([
+        fetchBookCatalog(token as string),
+        fetchAllProgress(token as string),
+        fetchAllPinnedWords(token as string),
+        loadAllPinnedWordRecords(),
+        fetchSettings(token as string),
+        fetchAllBookMetadata(token as string)
+      ]);
       if (cancelled) return;
 
-      const localCatalog = await refreshBookCatalog();
+      let localCatalog = await refreshBookCatalog();
+
+      // Propagate a deletion from another device: remove any book this
+      // device still has locally that the server has positively confirmed
+      // as deleted.
+      const remotelyDeletedHashes = new Set(
+        remoteBooks.filter((book) => book.deleted).map((book) => book.contentHash)
+      );
+      const booksToRemoveLocally = localCatalog.filter((book) =>
+        remotelyDeletedHashes.has(book.fingerprint)
+      );
+      for (const book of booksToRemoveLocally) {
+        await deleteStoredBook(book);
+        setOpenBookIds((current) => current.filter((id) => id !== book.id));
+        setLoadedBooks((current) => omitRecordKey(current, book.id));
+        setPaginatedBooks((current) => omitRecordKey(current, book.id));
+        setBookMetadataEdits((current) => omitRecordKey(current, book.id));
+        setSavedPageByBookId((current) => omitRecordKey(current, book.id));
+        setReadingProgressByBookId((current) => omitRecordKey(current, book.id));
+        setActivePageByRowId((current) => omitRecordKey(current, book.id));
+      }
+      if (booksToRemoveLocally.length > 0) {
+        localCatalog = await refreshBookCatalog();
+      }
+      if (cancelled) return;
+
       const localHashes = new Set(localCatalog.map((book) => book.fingerprint));
       const deletedHashes = new Set(locallyDeletedContentHashes);
       const missingBooks = remoteBooks.filter(
         (book) =>
+          !book.deleted &&
           !localHashes.has(book.contentHash) &&
           !deletedHashes.has(book.contentHash)
       );
@@ -525,6 +590,67 @@ function App() {
         if (local && local.updatedAt >= word.updatedAt) continue;
 
         await setWordPinned(word.languageCode, word.word, true, word.updatedAt);
+      }
+
+      setBookMetadataEdits((current) => {
+        const next = { ...current };
+
+        for (const override of remoteBookMetadata) {
+          const bookId = bookIdByContentHash.get(override.contentHash);
+          if (!bookId) continue;
+
+          const existing = next[bookId];
+          if (existing?.updatedAt && existing.updatedAt >= override.updatedAt) {
+            continue;
+          }
+
+          next[bookId] = {
+            title: override.title,
+            author: override.author,
+            languageCode: getSupportedLanguageCode(override.languageCode),
+            dictionaryLanguageCode: isDictionaryLanguageCode(
+              override.dictionaryLanguageCode
+            )
+              ? override.dictionaryLanguageCode
+              : "en",
+            fontFamily: override.fontFamily === "sans" ? "sans" : "serif",
+            spanishVoiceRegion: isSpanishVoiceRegion(override.spanishVoiceRegion)
+              ? override.spanishVoiceRegion
+              : "es",
+            updatedAt: override.updatedAt
+          };
+        }
+
+        return next;
+      });
+
+      if (remoteSettings && !cancelled) {
+        const baseline = settingsBaseline.current;
+
+        if (!baseline || remoteSettings.updatedAt > baseline.updatedAt) {
+          const lastSpanishVoiceRegion = isSpanishVoiceRegion(
+            remoteSettings.lastSpanishVoiceRegion
+          )
+            ? remoteSettings.lastSpanishVoiceRegion
+            : "es";
+
+          setAnimationsEnabled(remoteSettings.animationsEnabled);
+          setAutoPlayWordAudio(remoteSettings.autoPlayWordAudio);
+          setIsDarkMode(remoteSettings.isDarkMode);
+          setLastDictionaryLanguageCode(
+            remoteSettings.lastDictionaryLanguageCode
+          );
+          setLastSpanishVoiceRegion(lastSpanishVoiceRegion);
+
+          settingsBaseline.current = {
+            animationsEnabled: remoteSettings.animationsEnabled,
+            autoPlayWordAudio: remoteSettings.autoPlayWordAudio,
+            isDarkMode: remoteSettings.isDarkMode,
+            lastDictionaryLanguageCode: remoteSettings.lastDictionaryLanguageCode,
+            lastSpanishVoiceRegion,
+            updatedAt: remoteSettings.updatedAt
+          };
+        }
       }
     }
 
@@ -694,6 +820,35 @@ function App() {
         lastPushedProgressByBookId.current[bookId] = progress.updatedAt;
         pushProgress(token, book.fingerprint, progress);
       }
+
+      const baseline = settingsBaseline.current;
+      const settingsChanged =
+        !baseline ||
+        baseline.animationsEnabled !== animationsEnabled ||
+        baseline.autoPlayWordAudio !== autoPlayWordAudio ||
+        baseline.isDarkMode !== isDarkMode ||
+        baseline.lastDictionaryLanguageCode !== lastDictionaryLanguageCode ||
+        baseline.lastSpanishVoiceRegion !== lastSpanishVoiceRegion;
+
+      if (settingsChanged) {
+        const settingsUpdatedAt = Date.now();
+        settingsBaseline.current = {
+          animationsEnabled,
+          autoPlayWordAudio,
+          isDarkMode,
+          lastDictionaryLanguageCode,
+          lastSpanishVoiceRegion,
+          updatedAt: settingsUpdatedAt
+        };
+        pushSettings(token, {
+          animationsEnabled,
+          autoPlayWordAudio,
+          isDarkMode,
+          lastDictionaryLanguageCode,
+          lastSpanishVoiceRegion,
+          updatedAt: settingsUpdatedAt
+        });
+      }
     }
 
     return () => {
@@ -851,38 +1006,65 @@ function App() {
 
   const saveBookMetadata = useCallback(
     (bookId: string, metadata: BookMetadataEdit) => {
+      const updatedAt = Date.now();
+      const record: BookMetadataEdit = { ...metadata, updatedAt };
+
       setBookMetadataEdits((current) => ({
         ...current,
-        [bookId]: metadata
+        [bookId]: record
       }));
       setLastSpanishVoiceRegion(metadata.spanishVoiceRegion);
       setLastDictionaryLanguageCode(metadata.dictionaryLanguageCode);
       setEditingBookId(null);
+
+      const token = getStoredSessionToken();
+      const book = books.find((candidate) => candidate.id === bookId);
+      if (currentUser && token && book) {
+        pushBookMetadata(token, book.fingerprint, {
+          title: metadata.title,
+          author: metadata.author,
+          languageCode: metadata.languageCode,
+          dictionaryLanguageCode: metadata.dictionaryLanguageCode,
+          fontFamily: metadata.fontFamily,
+          spanishVoiceRegion: metadata.spanishVoiceRegion,
+          updatedAt
+        });
+      }
     },
-    []
+    [books, currentUser]
   );
 
-  const deleteBook = useCallback(async (book: BookSource) => {
-    await deleteStoredBook(book);
-    setBooks(await refreshBookCatalog());
-    setEditingBookId(null);
-    setOpenBookIds((current) => current.filter((bookId) => bookId !== book.id));
-    setLoadedBooks((current) => omitRecordKey(current, book.id));
-    setPaginatedBooks((current) => omitRecordKey(current, book.id));
-    setBookMetadataEdits((current) => omitRecordKey(current, book.id));
-    setSavedPageByBookId((current) => omitRecordKey(current, book.id));
-    setReadingProgressByBookId((current) => omitRecordKey(current, book.id));
-    setActivePageByRowId((current) => omitRecordKey(current, book.id));
-    setActiveRowId((current) => (current === book.id ? "library" : current));
-    // Recorded so a signed-in catalog pull doesn't silently re-download and
-    // re-add a book the user just deleted (the server has no idea it was
-    // deleted - sync only ever adds, it never removes on its own).
-    setLocallyDeletedContentHashes((current) =>
-      current.includes(book.fingerprint)
-        ? current
-        : [...current, book.fingerprint]
-    );
-  }, []);
+  const deleteBook = useCallback(
+    async (book: BookSource) => {
+      await deleteStoredBook(book);
+      setBooks(await refreshBookCatalog());
+      setEditingBookId(null);
+      setOpenBookIds((current) => current.filter((bookId) => bookId !== book.id));
+      setLoadedBooks((current) => omitRecordKey(current, book.id));
+      setPaginatedBooks((current) => omitRecordKey(current, book.id));
+      setBookMetadataEdits((current) => omitRecordKey(current, book.id));
+      setSavedPageByBookId((current) => omitRecordKey(current, book.id));
+      setReadingProgressByBookId((current) => omitRecordKey(current, book.id));
+      setActivePageByRowId((current) => omitRecordKey(current, book.id));
+      setActiveRowId((current) => (current === book.id ? "library" : current));
+      // Recorded immediately so this device's own next catalog pull can't
+      // race the server push below and briefly re-download what was just
+      // deleted (the real propagation to *other* devices is the server-side
+      // delete itself, via Book.Deleted - this tombstone only covers the
+      // gap before that push lands).
+      setLocallyDeletedContentHashes((current) =>
+        current.includes(book.fingerprint)
+          ? current
+          : [...current, book.fingerprint]
+      );
+
+      const token = getStoredSessionToken();
+      if (currentUser && token) {
+        pushBookDeletion(token, book.fingerprint, Date.now());
+      }
+    },
+    [currentUser]
+  );
 
   const editingBook = editingBookId
     ? books.find((book) => book.id === editingBookId)
@@ -2835,7 +3017,9 @@ function getPersistedBookMetadataEdits(value: unknown) {
         spanishVoiceRegion: isSpanishVoiceRegion(metadata.spanishVoiceRegion)
           ? metadata.spanishVoiceRegion
           : "es",
-        title
+        title,
+        updatedAt:
+          typeof metadata.updatedAt === "number" ? metadata.updatedAt : undefined
       };
     }
   }
