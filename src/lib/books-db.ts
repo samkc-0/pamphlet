@@ -1,19 +1,27 @@
 import type { BookSource } from "@/books";
+import { loadEpubFromArrayBuffer, type EpubBook } from "@/lib/epub";
 
 const LIBRARY_DATABASE_NAME = "pamphlet-library";
-const LIBRARY_DATABASE_VERSION = 2;
+const LIBRARY_DATABASE_VERSION = 3;
 const BOOK_DATA_STORE_NAME = "book-data";
 const BOOKS_STORE_NAME = "books";
 const DATABASE_OPEN_TIMEOUT_MS = 4000;
 
-type StoredBookDataRecord = {
-  data: ArrayBuffer;
-  id: string;
-};
+// A book's data is either the original file's raw bytes (uploaded on this
+// device, re-parsed on every read) or already-extracted text pulled from
+// another device via sync (which never had a local raw file to begin with).
+type StoredBookDataRecord =
+  | { data: ArrayBuffer; id: string; kind: "raw" }
+  | { content: EpubBook; id: string; kind: "extracted" };
 
 export type UploadedBook = {
   book: BookSource;
   data: ArrayBuffer;
+};
+
+export type SyncedBook = {
+  book: BookSource;
+  content: EpubBook;
 };
 
 export async function loadBookCatalog() {
@@ -35,10 +43,13 @@ export async function loadBookCatalog() {
   }).finally(() => database.close());
 }
 
-export async function readBookData(book: BookSource) {
+// Reads a book's content, transparently handling both storage kinds: a
+// locally-uploaded book is re-parsed from its raw bytes, a synced book is
+// returned as-is (it has no raw file on this device).
+export async function readBookContent(book: BookSource): Promise<EpubBook> {
   const database = await openLibraryDatabase();
 
-  return new Promise<ArrayBuffer>((resolve, reject) => {
+  return new Promise<StoredBookDataRecord>((resolve, reject) => {
     const transaction = database.transaction(
       [BOOKS_STORE_NAME, BOOK_DATA_STORE_NAME],
       "readonly"
@@ -50,7 +61,7 @@ export async function readBookData(book: BookSource) {
       const record = dataRequest.result as StoredBookDataRecord | undefined;
 
       if (record) {
-        resolve(record.data.slice(0));
+        resolve(record);
         return;
       }
 
@@ -59,7 +70,7 @@ export async function readBookData(book: BookSource) {
 
       legacyRequest.onsuccess = () => {
         const legacyRecord = legacyRequest.result as
-          | (BookSource & StoredBookDataRecord)
+          | (BookSource & { data?: ArrayBuffer })
           | undefined;
 
         if (!legacyRecord?.data) {
@@ -67,12 +78,18 @@ export async function readBookData(book: BookSource) {
           return;
         }
 
-        resolve(legacyRecord.data.slice(0));
+        resolve({ data: legacyRecord.data, id: book.id, kind: "raw" });
       };
       legacyRequest.onerror = () => reject(legacyRequest.error);
     };
     dataRequest.onerror = () => reject(dataRequest.error);
-  }).finally(() => database.close());
+  })
+    .finally(() => database.close())
+    .then((record) =>
+      record.kind === "raw"
+        ? loadEpubFromArrayBuffer(record.data.slice(0))
+        : record.content
+    );
 }
 
 export async function saveUploadedBook(uploadedBook: UploadedBook) {
@@ -88,7 +105,34 @@ export async function saveUploadedBook(uploadedBook: UploadedBook) {
     const bookRequest = bookStore.put(uploadedBook.book);
     const dataRequest = dataStore.put({
       data: uploadedBook.data,
-      id: uploadedBook.book.storageKey
+      id: uploadedBook.book.storageKey,
+      kind: "raw"
+    } satisfies StoredBookDataRecord);
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    bookRequest.onerror = () => reject(bookRequest.error);
+    dataRequest.onerror = () => reject(dataRequest.error);
+  }).finally(() => database.close());
+}
+
+// Saves a book pulled from the sync server, which has extracted text but no
+// original file to store locally.
+export async function saveSyncedBook(syncedBook: SyncedBook) {
+  const database = await openLibraryDatabase();
+
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(
+      [BOOKS_STORE_NAME, BOOK_DATA_STORE_NAME],
+      "readwrite"
+    );
+    const bookStore = transaction.objectStore(BOOKS_STORE_NAME);
+    const dataStore = transaction.objectStore(BOOK_DATA_STORE_NAME);
+    const bookRequest = bookStore.put(syncedBook.book);
+    const dataRequest = dataStore.put({
+      content: syncedBook.content,
+      id: syncedBook.book.storageKey,
+      kind: "extracted"
     } satisfies StoredBookDataRecord);
 
     transaction.oncomplete = () => resolve();
@@ -157,6 +201,10 @@ function openLibraryDatabase() {
       if (event.oldVersion < 2 && transaction) {
         splitLegacyBookRecords(transaction);
       }
+
+      if (event.oldVersion < 3 && event.oldVersion >= 2 && transaction) {
+        tagRawBookData(transaction);
+      }
     };
 
     request.onsuccess = () => {
@@ -197,11 +245,29 @@ function splitLegacyBookRecords(transaction: IDBTransaction) {
     if (data) {
       dataStore.put({
         data,
-        id: book.storageKey
+        id: book.storageKey,
+        kind: "raw"
       } satisfies StoredBookDataRecord);
       cursor.update(book);
     }
 
+    cursor.continue();
+  };
+}
+
+// Tags every pre-v3 book-data record "raw" - every one of them was
+// definitionally raw file bytes before synced ("extracted") books existed.
+function tagRawBookData(transaction: IDBTransaction) {
+  const dataStore = transaction.objectStore(BOOK_DATA_STORE_NAME);
+  const cursorRequest = dataStore.openCursor();
+
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result;
+
+    if (!cursor) return;
+
+    const record = cursor.value as { data: ArrayBuffer; id: string };
+    cursor.update({ ...record, kind: "raw" } satisfies StoredBookDataRecord);
     cursor.continue();
   };
 }

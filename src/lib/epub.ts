@@ -91,6 +91,27 @@ export async function loadEpubFromArrayBuffer(
   };
 }
 
+// Identifies a book across devices by hashing its extracted text rather
+// than the original file's bytes: two differently-packaged files with the
+// same text still match, and this ties identity to exactly what gets
+// synced. Only chapter id/paragraphs feed the hash (not title/author/
+// language) so unrelated metadata edits never change a book's identity.
+export async function computeContentHash(book: EpubBook): Promise<string> {
+  const canonical = JSON.stringify(
+    book.chapters.map((chapter) => ({
+      id: chapter.id,
+      paragraphs: chapter.paragraphs
+    }))
+  );
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(canonical)
+  );
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
 function parseRootfilePath(containerXml: string) {
   const document = parseXml(containerXml);
   const rootfile = document.querySelector("rootfile");

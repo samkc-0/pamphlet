@@ -4,10 +4,11 @@ const PINNED_WORDS_STORE_NAME = "pinned-words";
 const LANGUAGE_CODE_INDEX_NAME = "languageCode";
 const DATABASE_OPEN_TIMEOUT_MS = 4000;
 
-type PinnedWordRecord = {
+export type PinnedWordRecord = {
   id: string;
   languageCode: string;
   word: string;
+  updatedAt: number;
 };
 
 export async function loadPinnedWords(languageCode: string) {
@@ -27,10 +28,29 @@ export async function loadPinnedWords(languageCode: string) {
   }).finally(() => database.close());
 }
 
+/**
+ * Reads every pinned-word record across all languages, with its timestamp -
+ * used only to compare against incoming sync data, which isn't scoped to
+ * one language the way the reader UI's lookups are.
+ */
+export async function loadAllPinnedWordRecords() {
+  const database = await openPinnedWordsDatabase();
+
+  return new Promise<PinnedWordRecord[]>((resolve, reject) => {
+    const transaction = database.transaction(PINNED_WORDS_STORE_NAME, "readonly");
+    const store = transaction.objectStore(PINNED_WORDS_STORE_NAME);
+    const request = store.getAll();
+
+    request.onsuccess = () => resolve(request.result as PinnedWordRecord[]);
+    request.onerror = () => reject(request.error);
+  }).finally(() => database.close());
+}
+
 export async function setWordPinned(
   languageCode: string,
   word: string,
-  pinned: boolean
+  pinned: boolean,
+  updatedAt: number = Date.now()
 ) {
   const database = await openPinnedWordsDatabase();
 
@@ -40,7 +60,7 @@ export async function setWordPinned(
     const id = getPinnedWordId(languageCode, word);
 
     if (pinned) {
-      store.put({ id, languageCode, word } satisfies PinnedWordRecord);
+      store.put({ id, languageCode, word, updatedAt } satisfies PinnedWordRecord);
     } else {
       store.delete(id);
     }

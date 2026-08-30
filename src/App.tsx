@@ -22,28 +22,48 @@ import {
 import {
   deleteStoredBook,
   loadBookCatalog,
-  readBookData,
+  readBookContent,
+  saveSyncedBook,
   saveUploadedBook
 } from "@/lib/books-db";
 import { lookupWord, translateText } from "@/lib/dictionary";
-import { loadEpubFromArrayBuffer, type EpubBook } from "@/lib/epub";
+import {
+  computeContentHash,
+  loadEpubFromArrayBuffer,
+  type EpubBook
+} from "@/lib/epub";
 import {
   readCachedPagination,
   writeCachedPagination
 } from "@/lib/pagination-cache";
-import { paginateBookByLayout, type ReaderPage } from "@/lib/pagination";
-import { loadPinnedWords, setWordPinned } from "@/lib/pinned-words";
+import {
+  findPageForMarker,
+  paginateBookByLayout,
+  type ReaderPage
+} from "@/lib/pagination";
+import {
+  loadAllPinnedWordRecords,
+  loadPinnedWords,
+  setWordPinned
+} from "@/lib/pinned-words";
 import { speakWord } from "@/lib/speech";
 import {
   AUTH_POPUP_MESSAGE_TYPE,
   clearStoredSessionToken,
   consumeSessionTokenFromLocation,
   endSession,
+  fetchAllPinnedWords,
+  fetchAllProgress,
+  fetchBookCatalog,
+  fetchBookContent,
   fetchCurrentUser,
   getGoogleSignInUrl,
   getSyncApiOrigin,
   getStoredSessionToken,
   openGoogleSignInPopup,
+  pushBook,
+  pushPinnedWord,
+  pushProgress,
   setStoredSessionToken,
   type SyncUser
 } from "@/lib/sync-client";
@@ -136,6 +156,19 @@ type BookMetadataEdit = {
   title: string;
 };
 
+// A reading position expressed against a book's deterministic extracted
+// text (chapter id + paragraph index) rather than a viewport-dependent
+// ReaderPage.id, plus a timestamp for last-write-wins sync. Kept separate
+// from savedPageByBookId (whose value is device-specific and has no
+// per-book timestamp of its own - the whole PersistedAppState blob's
+// timestamp bumps on any change, not just a page turn, so it can't be used
+// for this).
+type ReadingProgressRecord = {
+  chapterId: string;
+  paragraphIndex: number;
+  updatedAt: number;
+};
+
 type PersistedAppState = {
   activePageByRowId: Record<string, string>;
   activeRowId: string;
@@ -146,7 +179,9 @@ type PersistedAppState = {
   isDarkMode: boolean;
   lastDictionaryLanguageCode: string;
   lastSpanishVoiceRegion: SpanishVoiceRegion;
+  locallyDeletedContentHashes: string[];
   openBookIds: string[];
+  readingProgressByBookId: Record<string, ReadingProgressRecord>;
   savedPageByBookId: Record<string, string>;
   version: 1;
 };
@@ -228,12 +263,22 @@ function App() {
   const [savedPageByBookId, setSavedPageByBookId] = useState<
     Record<string, string>
   >(() => defaultPersistedState.savedPageByBookId);
+  const [readingProgressByBookId, setReadingProgressByBookId] = useState<
+    Record<string, ReadingProgressRecord>
+  >(() => defaultPersistedState.readingProgressByBookId);
+  const [locallyDeletedContentHashes, setLocallyDeletedContentHashes] =
+    useState<string[]>(
+      () => defaultPersistedState.locallyDeletedContentHashes
+    );
+  const [pendingRemoteMarkerByBookId, setPendingRemoteMarkerByBookId] =
+    useState<Record<string, ReadingProgressRecord>>({});
   const [activeRowId, setActiveRowId] = useState(
     () => defaultPersistedState.activeRowId
   );
   const [pageJump, setPageJump] = useState<PageJump | null>(null);
   const pageJumpSerial = useRef(0);
   const syncIndicatorTimer = useRef<number | null>(null);
+  const lastPushedProgressByBookId = useRef<Record<string, number>>({});
   const [viewportKey, setViewportKey] = useState(() => getViewportKey());
   const [currentUser, setCurrentUser] = useState<SyncUser | null>(null);
 
@@ -318,6 +363,10 @@ function App() {
       setLastSpanishVoiceRegion(persistedState.lastSpanishVoiceRegion);
       setOpenBookIds(persistedState.openBookIds);
       setSavedPageByBookId(persistedState.savedPageByBookId);
+      setReadingProgressByBookId(persistedState.readingProgressByBookId);
+      setLocallyDeletedContentHashes(
+        persistedState.locallyDeletedContentHashes
+      );
       setIsStateLoaded(true);
     });
 
@@ -374,6 +423,118 @@ function App() {
     };
   }, [hasSeededDemoBook, isBookCatalogLoaded, isStateLoaded]);
 
+  // On sign-in, pull whatever this account has synced from other devices:
+  // books missing from this device's local catalog, reading positions
+  // (stashed as pending markers, resolved lazily once each book is
+  // actually paginated - see the pagination effect), and pinned words.
+  // Guarded exactly like the seed-demo-book effect above, so it can't race
+  // the local catalog/state load on startup.
+  useEffect(() => {
+    if (!currentUser || !isStateLoaded || !isBookCatalogLoaded) return;
+
+    const token = getStoredSessionToken();
+    if (!token) return;
+
+    let cancelled = false;
+
+    async function pullRemoteState() {
+      const [remoteBooks, remoteProgress, remotePinnedWords, localPinnedRecords] =
+        await Promise.all([
+          fetchBookCatalog(token as string),
+          fetchAllProgress(token as string),
+          fetchAllPinnedWords(token as string),
+          loadAllPinnedWordRecords()
+        ]);
+      if (cancelled) return;
+
+      const localCatalog = await refreshBookCatalog();
+      const localHashes = new Set(localCatalog.map((book) => book.fingerprint));
+      const deletedHashes = new Set(locallyDeletedContentHashes);
+      const missingBooks = remoteBooks.filter(
+        (book) =>
+          !localHashes.has(book.contentHash) &&
+          !deletedHashes.has(book.contentHash)
+      );
+
+      for (const summary of missingBooks) {
+        const content = await fetchBookContent(
+          token as string,
+          summary.contentHash
+        );
+        if (!content || cancelled) continue;
+
+        const now = Date.now();
+        const id = `${slugify(content.title || summary.title || "untitled")}-${summary.contentHash.slice(0, 12)}`;
+
+        await saveSyncedBook({
+          book: {
+            author: content.author,
+            createdAt: now,
+            fileName: `${content.title || "untitled"}.epub`,
+            fingerprint: summary.contentHash,
+            id,
+            language: content.language,
+            size: 0,
+            storageKey: id,
+            title: content.title,
+            updatedAt: now
+          },
+          content
+        });
+      }
+      if (cancelled) return;
+
+      const finalCatalog =
+        missingBooks.length > 0 ? await refreshBookCatalog() : localCatalog;
+      if (cancelled) return;
+      setBooks(finalCatalog);
+
+      const bookIdByContentHash = new Map(
+        finalCatalog.map((book) => [book.fingerprint, book.id])
+      );
+
+      setPendingRemoteMarkerByBookId((current) => {
+        const next = { ...current };
+
+        for (const progress of remoteProgress) {
+          const bookId = bookIdByContentHash.get(progress.contentHash);
+          if (!bookId) continue;
+
+          const pending = next[bookId];
+          if (pending && pending.updatedAt >= progress.updatedAt) continue;
+
+          next[bookId] = {
+            chapterId: progress.chapterId,
+            paragraphIndex: progress.paragraphIndex,
+            updatedAt: progress.updatedAt
+          };
+        }
+
+        return next;
+      });
+
+      const localPinnedByKey = new Map(
+        localPinnedRecords.map((record) => [record.id, record])
+      );
+
+      for (const word of remotePinnedWords) {
+        if (cancelled) return;
+
+        const key = `${word.languageCode}::${word.word}`;
+        const local = localPinnedByKey.get(key);
+        if (local && local.updatedAt >= word.updatedAt) continue;
+
+        await setWordPinned(word.languageCode, word.word, true, word.updatedAt);
+      }
+    }
+
+    pullRemoteState();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser, isStateLoaded, isBookCatalogLoaded, locallyDeletedContentHashes]);
+
   useEffect(() => {
     if (!isBookCatalogLoaded || books.length === 0) return;
 
@@ -401,8 +562,7 @@ function App() {
         [book.id]: { loading: true }
       }));
 
-      readBookData(book)
-        .then((data) => loadEpubFromArrayBuffer(data))
+      readBookContent(book)
         .then((data) => {
           setLoadedBooks((current) => ({
             ...current,
@@ -431,7 +591,7 @@ function App() {
       for (const file of files) {
         const data = await file.arrayBuffer();
         const metadata = await loadEpubFromArrayBuffer(data.slice(0));
-        const fingerprint = fingerprintArrayBuffer(data);
+        const fingerprint = await computeContentHash(metadata);
         const title = metadata.title?.trim() || file.name.replace(/\.epub$/i, "");
         const author = metadata.author?.trim() || "Unknown";
         const now = Date.now();
@@ -452,6 +612,17 @@ function App() {
           },
           data
         });
+
+        const token = getStoredSessionToken();
+        if (currentUser && token) {
+          pushBook(token, {
+            contentHash: fingerprint,
+            title,
+            author,
+            language: metadata.language,
+            chapters: metadata.chapters
+          });
+        }
       }
 
       setBooks(await refreshBookCatalog());
@@ -462,7 +633,7 @@ function App() {
     } finally {
       setIsUploadingBooks(false);
     }
-  }, []);
+  }, [currentUser]);
 
   useEffect(() => {
     const onResize = () => setViewportKey(getViewportKey());
@@ -493,7 +664,9 @@ function App() {
       isDarkMode,
       lastDictionaryLanguageCode,
       lastSpanishVoiceRegion,
+      locallyDeletedContentHashes,
       openBookIds,
+      readingProgressByBookId,
       savedPageByBookId,
       version: 1
     };
@@ -508,6 +681,21 @@ function App() {
       }, 450);
     });
 
+    const token = getStoredSessionToken();
+    if (currentUser && token) {
+      for (const [bookId, progress] of Object.entries(readingProgressByBookId)) {
+        if (lastPushedProgressByBookId.current[bookId] === progress.updatedAt) {
+          continue;
+        }
+
+        const book = books.find((candidate) => candidate.id === bookId);
+        if (!book) continue;
+
+        lastPushedProgressByBookId.current[bookId] = progress.updatedAt;
+        pushProgress(token, book.fingerprint, progress);
+      }
+    }
+
     return () => {
       cancelled = true;
     };
@@ -517,12 +705,16 @@ function App() {
     animationsEnabled,
     autoPlayWordAudio,
     bookMetadataEdits,
+    books,
+    currentUser,
     hasSeededDemoBook,
     isStateLoaded,
     isDarkMode,
     lastDictionaryLanguageCode,
     lastSpanishVoiceRegion,
+    locallyDeletedContentHashes,
     openBookIds,
+    readingProgressByBookId,
     savedPageByBookId
   ]);
 
@@ -534,10 +726,48 @@ function App() {
     };
   }, []);
 
+  const jumpToBookPage = useCallback((bookId: string, pageId: string) => {
+    pageJumpSerial.current += 1;
+
+    setPageJump({
+      pageId,
+      rowId: bookId,
+      serial: pageJumpSerial.current
+    });
+  }, []);
+
   useEffect(() => {
     if (!isStateLoaded) return;
 
     let cancelled = false;
+
+    // A book pulled from another device via sync may carry a pending
+    // remote reading position, expressed as a viewport-independent marker
+    // rather than a ReaderPage.id from this device's own layout. Resolve
+    // it into a real page only once this device has actually paginated the
+    // book - forcing pagination up front for every book on sign-in would
+    // be wasteful. Only wins if it's actually newer than what's already
+    // recorded locally.
+    function resolvePendingRemoteMarker(bookId: string, pages: ReaderPage[]) {
+      const marker = pendingRemoteMarkerByBookId[bookId];
+      if (!marker) return;
+
+      setPendingRemoteMarkerByBookId((current) =>
+        omitRecordKey(current, bookId)
+      );
+
+      const localProgress = readingProgressByBookId[bookId];
+      if (localProgress && localProgress.updatedAt >= marker.updatedAt) return;
+
+      const page = findPageForMarker(pages, marker);
+      if (!page) return;
+
+      jumpToBookPage(bookId, page.id);
+      setReadingProgressByBookId((current) => ({
+        ...current,
+        [bookId]: marker
+      }));
+    }
 
     async function paginateOpenBooks() {
       for (const book of books) {
@@ -556,6 +786,7 @@ function App() {
               viewportKey
             }
           }));
+          resolvePendingRemoteMarker(book.id, cachedPagination.pages);
           continue;
         }
 
@@ -568,6 +799,7 @@ function App() {
             ...current,
             [book.id]: { pages, viewportKey }
           }));
+          resolvePendingRemoteMarker(book.id, pages);
         }
       }
     }
@@ -577,7 +809,17 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [books, isStateLoaded, loadedBooks, openBookIds, paginatedBooks, viewportKey]);
+  }, [
+    books,
+    isStateLoaded,
+    jumpToBookPage,
+    loadedBooks,
+    openBookIds,
+    paginatedBooks,
+    pendingRemoteMarkerByBookId,
+    readingProgressByBookId,
+    viewportKey
+  ]);
 
   const toggleBook = useCallback((bookId: string) => {
     window.setTimeout(() => {
@@ -593,16 +835,6 @@ function App() {
         return [...current, bookId];
       });
     }, 0);
-  }, []);
-
-  const jumpToBookPage = useCallback((bookId: string, pageId: string) => {
-    pageJumpSerial.current += 1;
-
-    setPageJump({
-      pageId,
-      rowId: bookId,
-      serial: pageJumpSerial.current
-    });
   }, []);
 
   const toggleDarkMode = useCallback(() => {
@@ -639,8 +871,17 @@ function App() {
     setPaginatedBooks((current) => omitRecordKey(current, book.id));
     setBookMetadataEdits((current) => omitRecordKey(current, book.id));
     setSavedPageByBookId((current) => omitRecordKey(current, book.id));
+    setReadingProgressByBookId((current) => omitRecordKey(current, book.id));
     setActivePageByRowId((current) => omitRecordKey(current, book.id));
     setActiveRowId((current) => (current === book.id ? "library" : current));
+    // Recorded so a signed-in catalog pull doesn't silently re-download and
+    // re-add a book the user just deleted (the server has no idea it was
+    // deleted - sync only ever adds, it never removes on its own).
+    setLocallyDeletedContentHashes((current) =>
+      current.includes(book.fingerprint)
+        ? current
+        : [...current, book.fingerprint]
+    );
   }, []);
 
   const editingBook = editingBookId
@@ -766,6 +1007,43 @@ function App() {
             }
 
             return shallowEqualRecords(current, next) ? current : next;
+          });
+          setReadingProgressByBookId((current) => {
+            const next = { ...current };
+            let changed = false;
+
+            for (const book of books) {
+              const pageId = activePageByRowId[book.id];
+              if (!pageId || pageId === "status") continue;
+
+              const page = paginatedBooks[book.id]?.pages.find(
+                (candidate) => candidate.id === pageId
+              );
+              if (!page) continue;
+
+              // Only stamp a fresh updatedAt when the position actually
+              // moved - this callback fires on every navigation change
+              // across the whole app, not just a page turn in this book,
+              // and a spurious timestamp bump would make a book's local
+              // progress look newer than another device's real update to
+              // it during sync's last-write-wins comparison.
+              const existing = current[book.id];
+              if (
+                existing?.chapterId === page.chapterId &&
+                existing?.paragraphIndex === page.startParagraphIndex
+              ) {
+                continue;
+              }
+
+              next[book.id] = {
+                chapterId: page.chapterId,
+                paragraphIndex: page.startParagraphIndex,
+                updatedAt: Date.now()
+              };
+              changed = true;
+            }
+
+            return changed ? next : current;
           });
         }}
         pageJump={pageJump}
@@ -918,7 +1196,8 @@ function createArticleRows({
           jumpToBookPage,
           autoPlayWordAudio,
           lastSpanishVoiceRegion,
-          lastDictionaryLanguageCode
+          lastDictionaryLanguageCode,
+          currentUser
         )
       )
   ];
@@ -934,7 +1213,8 @@ function createBookRow(
   jumpToBookPage?: (bookId: string, pageId: string) => void,
   autoPlayWordAudio?: boolean,
   lastSpanishVoiceRegion?: SpanishVoiceRegion,
-  lastDictionaryLanguageCode?: string
+  lastDictionaryLanguageCode?: string,
+  currentUser?: SyncUser | null
 ): WorkspaceRow {
   const metadata = getBookMetadata(
     book,
@@ -954,6 +1234,7 @@ function createBookRow(
           <ReaderScreen
             author={metadata.author}
             autoPlayWordAudio={Boolean(autoPlayWordAudio)}
+            currentUser={currentUser ?? null}
             dictionaryLanguageCode={metadata.dictionaryLanguageCode}
             fontFamily={metadata.fontFamily}
             isSyncingState={Boolean(isSyncingState)}
@@ -1821,6 +2102,7 @@ function ReaderScreen({
   author,
   autoPlayWordAudio,
   chapterTitle,
+  currentUser,
   dictionaryLanguageCode,
   fontFamily,
   isSyncingState,
@@ -1835,6 +2117,7 @@ function ReaderScreen({
   author: string;
   autoPlayWordAudio: boolean;
   chapterTitle?: string;
+  currentUser: SyncUser | null;
   dictionaryLanguageCode: string;
   fontFamily: FontFamily;
   isSyncingState: boolean;
@@ -2112,7 +2395,13 @@ function ReaderScreen({
       return next;
     });
 
-    setWordPinned(languageCode, word, nextPinned).catch(() => {});
+    const updatedAt = Date.now();
+    setWordPinned(languageCode, word, nextPinned, updatedAt).catch(() => {});
+
+    const token = getStoredSessionToken();
+    if (currentUser && token) {
+      pushPinnedWord(token, { languageCode, word, pinned: nextPinned, updatedAt });
+    }
   };
 
   const commitPageDraft = () => {
@@ -2315,7 +2604,9 @@ function getDefaultPersistedAppState(): PersistedAppState {
     isDarkMode: false,
     lastDictionaryLanguageCode: "en",
     lastSpanishVoiceRegion: "es",
+    locallyDeletedContentHashes: [],
     openBookIds: [],
+    readingProgressByBookId: {},
     savedPageByBookId: {},
     version: 1
   };
@@ -2331,7 +2622,7 @@ async function seedDemoBook() {
 
   const data = await response.arrayBuffer();
   const metadata = await loadEpubFromArrayBuffer(data.slice(0));
-  const fingerprint = fingerprintArrayBuffer(data);
+  const fingerprint = await computeContentHash(metadata);
   const title =
     metadata.title?.trim() || DEMO_BOOK_FILE_NAME.replace(/\.epub$/i, "");
   const author = metadata.author?.trim() || "Unknown";
@@ -2353,22 +2644,6 @@ async function seedDemoBook() {
     },
     data
   });
-}
-
-function fingerprintArrayBuffer(data: ArrayBuffer) {
-  const bytes = new Uint8Array(data);
-  let hashA = 0x811c9dc5;
-  let hashB = 0x811c9dc5 ^ 0xffffffff;
-
-  for (const byte of bytes) {
-    hashA = Math.imul(hashA ^ byte, 0x01000193);
-    hashB = Math.imul(hashB ^ byte, 0x01000193);
-  }
-
-  return (
-    (hashA >>> 0).toString(16).padStart(8, "0") +
-    (hashB >>> 0).toString(16).padStart(8, "0")
-  );
 }
 
 function slugify(input: string) {
@@ -2418,6 +2693,12 @@ function normalizePersistedAppState(
   const defaultState = getDefaultPersistedAppState();
   const activePageByRowId = getStringRecord(state.activePageByRowId);
   const savedPageByBookId = getStringRecord(state.savedPageByBookId);
+  const readingProgressByBookId = getPersistedReadingProgress(
+    state.readingProgressByBookId
+  );
+  const locallyDeletedContentHashes = getPersistedContentHashes(
+    state.locallyDeletedContentHashes
+  );
   const openBookIds = getPersistedOpenBookIds(state.openBookIds);
   const bookMetadataEdits = getPersistedBookMetadataEdits(
     state.bookMetadataEdits
@@ -2459,10 +2740,42 @@ function normalizePersistedAppState(
     lastSpanishVoiceRegion: isSpanishVoiceRegion(state.lastSpanishVoiceRegion)
       ? state.lastSpanishVoiceRegion
       : defaultState.lastSpanishVoiceRegion,
+    locallyDeletedContentHashes,
     openBookIds,
+    readingProgressByBookId,
     savedPageByBookId,
     version: 1
   };
+}
+
+function getPersistedReadingProgress(value: unknown) {
+  if (!isRecord(value)) return {};
+
+  const progress: Record<string, ReadingProgressRecord> = {};
+
+  for (const [bookId, record] of Object.entries(value)) {
+    if (!isRecord(record)) continue;
+
+    const { chapterId, paragraphIndex, updatedAt } = record;
+
+    if (
+      typeof chapterId === "string" &&
+      typeof paragraphIndex === "number" &&
+      typeof updatedAt === "number"
+    ) {
+      progress[bookId] = { chapterId, paragraphIndex, updatedAt };
+    }
+  }
+
+  return progress;
+}
+
+function getPersistedContentHashes(value: unknown) {
+  if (!Array.isArray(value)) return [];
+
+  return Array.from(
+    new Set(value.filter((hash): hash is string => typeof hash === "string"))
+  );
 }
 
 function isSpanishVoiceRegion(value: unknown): value is SpanishVoiceRegion {

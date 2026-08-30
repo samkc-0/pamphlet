@@ -1,10 +1,41 @@
 import type { EpubBook, EpubSection } from "@/lib/epub";
 
 export type ReaderPage = {
+  chapterId: string;
   chapterTitle?: string;
   id: string;
   paragraphs: string[];
+  startParagraphIndex: number;
 };
+
+// A viewport-independent reading position: unlike ReaderPage.id (which
+// encodes a page number from this device's own layout), this identifies a
+// spot in the book's deterministic extracted text, so it can be resolved
+// into a real page on any device via findPageForMarker.
+export type ReadingPositionMarker = {
+  chapterId: string;
+  paragraphIndex: number;
+};
+
+// Finds the page on this device that contains the given marker: the last
+// page in the marker's chapter that starts at or before its paragraph
+// index. Returns undefined (never throws) if the chapter no longer exists
+// in these pages, so callers can fall back to leaving the current page
+// alone instead of crashing on a marker synced from elsewhere.
+export function findPageForMarker(
+  pages: ReaderPage[],
+  marker: ReadingPositionMarker
+): ReaderPage | undefined {
+  let match: ReaderPage | undefined;
+
+  for (const page of pages) {
+    if (page.chapterId !== marker.chapterId) continue;
+    if (page.startParagraphIndex > marker.paragraphIndex) break;
+    match = page;
+  }
+
+  return match;
+}
 
 export type PaginationMetrics = {
   height: number;
@@ -52,8 +83,17 @@ function paginateChapter(
   const paragraphs = [...chapter.paragraphs];
   let pageParagraphs: string[] = [];
   let pageIndex = 1;
+  let pageStartParagraphIndex = 0;
 
   for (let paragraphIndex = 0; paragraphIndex < paragraphs.length;) {
+    // A paragraph's text can be mutated in place when split across pages
+    // (the remainder replaces it at the same index), but the array is
+    // never inserted into or removed from - so paragraphIndex stays a
+    // valid, stable index into chapter.paragraphs throughout.
+    if (pageParagraphs.length === 0) {
+      pageStartParagraphIndex = paragraphIndex;
+    }
+
     const paragraph = paragraphs[paragraphIndex];
     const nextParagraphs = [...pageParagraphs, paragraph];
     const nextHeight = measurePage(
@@ -83,9 +123,11 @@ function paginateChapter(
 
     if (pageParagraphs.length > 0) {
       pages.push({
+        chapterId: chapter.id,
         chapterTitle: getPageChapterTitle(chapter, pageIndex),
         id: `${chapter.id}-${pageIndex}`,
-        paragraphs: pageParagraphs
+        paragraphs: pageParagraphs,
+        startParagraphIndex: pageStartParagraphIndex
       });
 
       pageIndex += 1;
@@ -102,9 +144,11 @@ function paginateChapter(
     );
 
     pages.push({
+      chapterId: chapter.id,
       chapterTitle: getPageChapterTitle(chapter, pageIndex),
       id: `${chapter.id}-${pageIndex}`,
-      paragraphs: [forcedSplit.fittingText || paragraph]
+      paragraphs: [forcedSplit.fittingText || paragraph],
+      startParagraphIndex: pageStartParagraphIndex
     });
 
     pageIndex += 1;
@@ -118,9 +162,11 @@ function paginateChapter(
 
   if (pageParagraphs.length > 0) {
     pages.push({
+      chapterId: chapter.id,
       chapterTitle: getPageChapterTitle(chapter, pageIndex),
       id: `${chapter.id}-${pageIndex}`,
-      paragraphs: pageParagraphs
+      paragraphs: pageParagraphs,
+      startParagraphIndex: pageStartParagraphIndex
     });
   }
 
