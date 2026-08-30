@@ -94,22 +94,20 @@ export function DictionariesScreen() {
             when you're connected.
           </p>
 
-          <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-4">
             {DICTIONARY_CATALOG.map((entry) => {
               const isDownloaded = downloadedKeys.has(entry.key);
               const state = downloadStates[entry.key] ?? { status: "idle" as const };
 
               return (
                 <div
-                  className="flex items-center justify-between gap-3 text-left"
+                  className="flex items-start justify-between gap-2 text-left"
                   key={entry.key}
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-base leading-tight">
-                      {entry.label}
-                    </p>
+                    <p className="text-sm leading-tight">{entry.label}</p>
                     <p
-                      className={`flex items-center gap-1 text-xs ${
+                      className={`mt-0.5 flex items-center gap-1 text-xs ${
                         state.status === "error"
                           ? "text-red-500 dark:text-red-400"
                           : "text-neutral-500 dark:text-neutral-400"
@@ -117,10 +115,10 @@ export function DictionariesScreen() {
                     >
                       {isDownloaded ? (
                         <>
-                          <Check className="h-3 w-3" /> Downloaded
+                          <Check className="h-3 w-3 shrink-0" /> Downloaded
                         </>
                       ) : state.status === "downloading" ? (
-                        `Downloading… ${Math.round(state.fraction * 100)}%`
+                        `${Math.round(state.fraction * 100)}%`
                       ) : state.status === "error" ? (
                         state.message
                       ) : (
@@ -132,7 +130,7 @@ export function DictionariesScreen() {
                   {isDownloaded ? (
                     <button
                       aria-label={`Remove ${entry.label} dictionary`}
-                      className="shrink-0 rounded-full p-1.5 text-neutral-500 outline-none focus-visible:text-neutral-950 dark:text-neutral-400 dark:focus-visible:text-neutral-100"
+                      className="shrink-0 rounded-full p-1 text-neutral-500 outline-none focus-visible:text-neutral-950 dark:text-neutral-400 dark:focus-visible:text-neutral-100"
                       onClick={() => handleDelete(entry.key)}
                       type="button"
                     >
@@ -146,7 +144,7 @@ export function DictionariesScreen() {
                   ) : (
                     <button
                       aria-label={`Download ${entry.label} dictionary`}
-                      className="shrink-0 rounded-full p-1.5 text-neutral-500 outline-none focus-visible:text-neutral-950 dark:text-neutral-400 dark:focus-visible:text-neutral-100"
+                      className="shrink-0 rounded-full p-1 text-neutral-500 outline-none focus-visible:text-neutral-950 dark:text-neutral-400 dark:focus-visible:text-neutral-100"
                       onClick={() => handleDownload(entry.key)}
                       type="button"
                     >
