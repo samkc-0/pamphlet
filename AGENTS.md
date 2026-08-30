@@ -45,6 +45,36 @@ carousel or iOS page-turn behaves. This hasn't been built yet — if you're
 touching `swipe-workspace.tsx`, know that's the target, not the current
 gesture-detect-then-animate implementation.
 
+## Cross-device sync
+
+Signed-in users sync book content, reading progress, and pinned words via
+`pamphlet-sync` (`src/lib/sync-client.ts`, plus the push/pull effects in
+`App.tsx`). **Whenever you add or change state that should follow the user
+across devices, it needs both halves**: a backend model + endpoint pair in
+`pamphlet-sync` (see the matching note in its AGENTS.md) *and* the frontend
+wiring here, following the pattern already established:
+
+- Push on local change, fire-and-forget (`.catch()`, never `await` in a way
+  that blocks the UI) — sync must never break or slow down local-only/
+  offline usage.
+- Pull on sign-in, guarded exactly like the seed-demo-book effect
+  (`if (!isStateLoaded || !isBookCatalogLoaded) return;`) so it can't race
+  the local catalog/state load on startup.
+- Last-write-wins by a client-supplied timestamp, same as the backend.
+- A book reference in synced state must be its content hash
+  (`BookSource.fingerprint`), not the local `id` — the hash is what's
+  portable across devices; the local id embeds a device-local slug.
+- A `ReaderPage.id` is viewport-dependent and meaningless on another
+  device's screen size — never sync one directly. Express a position as
+  `{chapterId, paragraphIndex}` (see `pagination.ts`'s
+  `findPageForMarker`/`startParagraphIndex`) and resolve it into a real
+  page lazily, only once the target device has actually paginated that
+  book.
+
+Don't add frontend-only "syncable-sounding" state without checking whether
+it needs the backend counterpart — a half-wired sync feature silently does
+nothing.
+
 ## Related
 
 - Backend lives in the sibling repo `pamphlet-sync` (Go + Gin + GORM +
