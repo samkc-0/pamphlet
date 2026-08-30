@@ -239,6 +239,10 @@
     animation: cog-spin-once 520ms ease-out both;
   }
 
+  .glass-pop-in {
+    animation: glass-pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
   @keyframes screen-enter-left {
     from {
       transform: translate3d(-100%, 0, 0);
@@ -320,6 +324,17 @@
   @keyframes cog-spin-once {
     to {
       transform: rotate(360deg);
+    }
+  }
+
+  @keyframes glass-pop-in {
+    from {
+      opacity: 0;
+      transform: scale(0.94);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1);
     }
   }
 }
