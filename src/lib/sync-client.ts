@@ -38,6 +38,14 @@ export type SyncedPinnedWord = {
   updatedAt: number;
 };
 
+export type SyncedNavigationState = {
+  activeRowId: string;
+  openContentHashes: string[];
+  libraryPageId: string;
+  settingsPageId: string;
+  updatedAt: number;
+};
+
 export type SyncedSettings = {
   animationsEnabled: boolean;
   autoPlayWordAudio: boolean;
@@ -403,4 +411,51 @@ export async function fetchAllBookMetadata(
     ...record,
     updatedAt: fromWireTimestamp(record.updatedAt)
   }));
+}
+
+/**
+ * Saves which screen the user was looking at (focused row, open books,
+ * library-grid page) - not a book's page *within* the book, which is
+ * pushProgress's job since a ReaderPage.id isn't portable across devices.
+ */
+export async function pushNavigationState(
+  token: string,
+  state: {
+    activeRowId: string;
+    openContentHashes: string[];
+    libraryPageId: string;
+    settingsPageId: string;
+    updatedAt: number;
+  }
+) {
+  await authorizedFetch("/navigation", token, {
+    method: "POST",
+    body: JSON.stringify({
+      activeRowId: state.activeRowId,
+      openContentHashes: state.openContentHashes,
+      libraryPageId: state.libraryPageId,
+      settingsPageId: state.settingsPageId,
+      updatedAt: toWireTimestamp(state.updatedAt)
+    })
+  }).catch((error: unknown) => {
+    console.error("Failed to sync navigation state to server.", error);
+  });
+}
+
+/** Returns the signed-in user's last-known screen, or null if none has been saved yet. */
+export async function fetchNavigationState(
+  token: string
+): Promise<SyncedNavigationState | null> {
+  const response = await authorizedFetch("/navigation", token);
+  if (!response.ok) return null;
+
+  const record = (await response.json()) as {
+    activeRowId: string;
+    openContentHashes: string[];
+    libraryPageId: string;
+    settingsPageId: string;
+    updatedAt: string;
+  };
+
+  return { ...record, updatedAt: fromWireTimestamp(record.updatedAt) };
 }

@@ -58,6 +58,7 @@ import {
   fetchBookCatalog,
   fetchBookContent,
   fetchCurrentUser,
+  fetchNavigationState,
   fetchSettings,
   getGoogleSignInUrl,
   getSyncApiOrigin,
@@ -66,6 +67,7 @@ import {
   pushBook,
   pushBookDeletion,
   pushBookMetadata,
+  pushNavigationState,
   pushPinnedWord,
   pushProgress,
   pushSettings,
@@ -302,6 +304,15 @@ function App() {
     lastSpanishVoiceRegion: SpanishVoiceRegion;
     updatedAt: number;
   } | null>(null);
+  // Same in-memory-only baseline pattern as settingsBaseline, for which
+  // screen (row/open books/library page) was last pushed or pulled.
+  const navigationBaseline = useRef<{
+    activeRowId: string;
+    openContentHashes: string[];
+    libraryPageId: string;
+    settingsPageId: string;
+    updatedAt: number;
+  } | null>(null);
   const [viewportKey, setViewportKey] = useState(() => getViewportKey());
   const [currentUser, setCurrentUser] = useState<SyncUser | null>(null);
 
@@ -475,14 +486,16 @@ function App() {
         remotePinnedWords,
         localPinnedRecords,
         remoteSettings,
-        remoteBookMetadata
+        remoteBookMetadata,
+        remoteNavigationState
       ] = await Promise.all([
         fetchBookCatalog(token as string),
         fetchAllProgress(token as string),
         fetchAllPinnedWords(token as string),
         loadAllPinnedWordRecords(),
         fetchSettings(token as string),
-        fetchAllBookMetadata(token as string)
+        fetchAllBookMetadata(token as string),
+        fetchNavigationState(token as string)
       ]);
       if (cancelled) return;
 
@@ -649,6 +662,41 @@ function App() {
             lastDictionaryLanguageCode: remoteSettings.lastDictionaryLanguageCode,
             lastSpanishVoiceRegion,
             updatedAt: remoteSettings.updatedAt
+          };
+        }
+      }
+
+      if (remoteNavigationState && !cancelled) {
+        const navBaseline = navigationBaseline.current;
+
+        if (!navBaseline || remoteNavigationState.updatedAt > navBaseline.updatedAt) {
+          const knownBookIdByContentHash = new Map(
+            finalCatalog.map((book) => [book.fingerprint, book.id])
+          );
+
+          const nextOpenBookIds = remoteNavigationState.openContentHashes
+            .map((hash) => knownBookIdByContentHash.get(hash))
+            .filter((id): id is string => Boolean(id));
+          const nextActiveRowId =
+            knownBookIdByContentHash.get(remoteNavigationState.activeRowId) ??
+            (remoteNavigationState.activeRowId === "settings"
+              ? "settings"
+              : "library");
+
+          setOpenBookIds(nextOpenBookIds);
+          setActiveRowId(nextActiveRowId);
+          setActivePageByRowId((current) => ({
+            ...current,
+            library: remoteNavigationState.libraryPageId || current.library,
+            settings: remoteNavigationState.settingsPageId || current.settings
+          }));
+
+          navigationBaseline.current = {
+            activeRowId: remoteNavigationState.activeRowId,
+            openContentHashes: remoteNavigationState.openContentHashes,
+            libraryPageId: remoteNavigationState.libraryPageId,
+            settingsPageId: remoteNavigationState.settingsPageId,
+            updatedAt: remoteNavigationState.updatedAt
           };
         }
       }
@@ -847,6 +895,34 @@ function App() {
           lastDictionaryLanguageCode,
           lastSpanishVoiceRegion,
           updatedAt: settingsUpdatedAt
+        });
+      }
+
+      const openContentHashes = openBookIds
+        .map((bookId) => books.find((book) => book.id === bookId)?.fingerprint)
+        .filter((hash): hash is string => Boolean(hash));
+      const activeBook = books.find((book) => book.id === activeRowId);
+      const navigationState = {
+        activeRowId: activeBook ? activeBook.fingerprint : activeRowId,
+        openContentHashes,
+        libraryPageId: activePageByRowId.library ?? "",
+        settingsPageId: activePageByRowId.settings ?? ""
+      };
+
+      const navBaseline = navigationBaseline.current;
+      const navigationChanged =
+        !navBaseline ||
+        navBaseline.activeRowId !== navigationState.activeRowId ||
+        navBaseline.libraryPageId !== navigationState.libraryPageId ||
+        navBaseline.settingsPageId !== navigationState.settingsPageId ||
+        !arraysEqual(navBaseline.openContentHashes, navigationState.openContentHashes);
+
+      if (navigationChanged) {
+        const navigationUpdatedAt = Date.now();
+        navigationBaseline.current = { ...navigationState, updatedAt: navigationUpdatedAt };
+        pushNavigationState(token, {
+          ...navigationState,
+          updatedAt: navigationUpdatedAt
         });
       }
     }
