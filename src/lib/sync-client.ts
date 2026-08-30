@@ -103,6 +103,16 @@ export function getGoogleSignInUrl() {
   return `${getSyncApiUrl()}/auth/google/login`;
 }
 
+// Offline dictionary datasets are served by pamphlet-sync today, but that's
+// an implementation detail — VITE_DICTIONARY_BASE_URL lets this move to
+// dedicated object storage (e.g. S3-compatible) later without touching any
+// caller. Defaults to pamphlet-sync's /dictionaries/ path.
+export function getDictionaryFileUrl(filename: string) {
+  const base =
+    import.meta.env.VITE_DICTIONARY_BASE_URL ?? `${getSyncApiUrl()}/dictionaries`;
+  return `${base.replace(/\/$/, "")}/${filename}`;
+}
+
 /**
  * Opens the Google sign-in flow in a popup window rather than navigating
  * the current tab, so the app never leaves the screen the user was on.
