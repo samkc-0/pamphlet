@@ -315,6 +315,14 @@ function App() {
     settingsPageId: string;
     updatedAt: number;
   } | null>(null);
+  // A pulled navigation state is only ever allowed to actually move the
+  // screen once per session (the first pull after sign-in/app load) - never
+  // on a later poll or manual "Sync now". Otherwise merely visiting another
+  // screen on any signed-in device (Settings, to press "Sync now", or just
+  // to toggle dark mode) would push a navigation change that yanks every
+  // other device away from whatever it's actively doing within a poll
+  // interval. Later pulls still refresh books/progress/pins/settings.
+  const hasAppliedRemoteNavigationState = useRef(false);
   const [viewportKey, setViewportKey] = useState(() => getViewportKey());
   const [currentUser, setCurrentUser] = useState<SyncUser | null>(null);
   const [isForceSyncing, setIsForceSyncing] = useState(false);
@@ -377,6 +385,10 @@ function App() {
 
     clearStoredSessionToken();
     setCurrentUser(null);
+    // So a second sign-in later in the same session (no page reload) still
+    // adopts the remote screen once, rather than silently skipping it
+    // because this flag was already tripped by the first sign-in.
+    hasAppliedRemoteNavigationState.current = false;
 
     if (token) {
       endSession(token);
@@ -683,13 +695,16 @@ function App() {
             ? "settings"
             : "library");
 
-        setOpenBookIds(nextOpenBookIds);
-        setActiveRowId(nextActiveRowId);
-        setActivePageByRowId((current) => ({
-          ...current,
-          library: remoteNavigationState.libraryPageId || current.library,
-          settings: remoteNavigationState.settingsPageId || current.settings
-        }));
+        if (!hasAppliedRemoteNavigationState.current) {
+          setOpenBookIds(nextOpenBookIds);
+          setActiveRowId(nextActiveRowId);
+          setActivePageByRowId((current) => ({
+            ...current,
+            library: remoteNavigationState.libraryPageId || current.library,
+            settings: remoteNavigationState.settingsPageId || current.settings
+          }));
+        }
+        hasAppliedRemoteNavigationState.current = true;
 
         navigationBaseline.current = {
           activeRowId: remoteNavigationState.activeRowId,
