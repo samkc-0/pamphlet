@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent, MouseEvent, PointerEvent } from "react";
-import { Settings, UserRound } from "lucide-react";
+import { RefreshCw, Settings, UserRound } from "lucide-react";
 
 import type { BookSource } from "@/books";
 import {
@@ -1640,14 +1640,6 @@ function SettingsScreen({
                 Signed in as {currentUser.email}
               </p>
               <button
-                className="mx-auto block text-lg leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 disabled:text-neutral-400 dark:text-neutral-100 dark:focus-visible:text-neutral-400 dark:disabled:text-neutral-600"
-                disabled={isForceSyncing}
-                onClick={forceSync}
-                type="button"
-              >
-                {isForceSyncing ? "Syncing…" : "Sync now"}
-              </button>
-              <button
                 className="mx-auto block text-lg leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400"
                 onClick={signOut}
                 type="button"
@@ -1665,6 +1657,30 @@ function SettingsScreen({
             </button>
           )}
         </fieldset>
+
+        {currentUser ? (
+          <fieldset className="mx-auto mt-6 max-w-md border border-neutral-300 px-6 pb-7 pt-5 dark:border-neutral-700">
+            <legend className="mx-auto px-3 text-neutral-500 dark:text-neutral-400">
+              <span className="inline-grid h-10 w-10 place-items-center">
+                <RefreshCw
+                  aria-label="Sync"
+                  className="h-6 w-6"
+                  role="img"
+                  strokeWidth={1.75}
+                />
+              </span>
+            </legend>
+
+            <button
+              className="mx-auto block text-lg leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 disabled:text-neutral-400 dark:text-neutral-100 dark:focus-visible:text-neutral-400 dark:disabled:text-neutral-600"
+              disabled={isForceSyncing}
+              onClick={forceSync}
+              type="button"
+            >
+              {isForceSyncing ? "Syncing…" : "Sync now"}
+            </button>
+          </fieldset>
+        ) : null}
       </div>
     </div>
   );
