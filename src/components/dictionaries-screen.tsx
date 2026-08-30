@@ -171,6 +171,19 @@ export function DictionariesScreen() {
               );
             })}
           </div>
+
+          <p className="mt-5 text-[11px] leading-snug text-neutral-400 dark:text-neutral-500">
+            Definitions from{" "}
+            <a
+              className="underline outline-none focus-visible:text-neutral-600 dark:focus-visible:text-neutral-300"
+              href="https://www.wiktionary.org"
+              rel="noopener noreferrer"
+              target="_blank"
+            >
+              Wiktionary
+            </a>
+            , CC BY-SA 4.0 / GFDL.
+          </p>
         </fieldset>
       </div>
 
