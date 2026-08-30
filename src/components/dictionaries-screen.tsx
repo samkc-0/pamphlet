@@ -8,7 +8,6 @@ import {
   getDownloadedDictionaryKeys,
   removeDictionary
 } from "@/lib/dictionary-downloads";
-import { GLASS_PANEL_CLASSNAME } from "@/lib/glass-panel";
 
 const TOAST_DURATION_MS = 5000;
 
@@ -193,11 +192,11 @@ export function DictionariesScreen() {
           onClick={dismissToast}
         >
           <div
-            className={`w-full max-w-xs p-4 ${GLASS_PANEL_CLASSNAME}`}
+            className="glass-pop-in w-full max-w-xs rounded-2xl bg-white/25 p-4 backdrop-blur-lg backdrop-saturate-[1.8] dark:bg-neutral-900/35"
             onClick={(event) => event.stopPropagation()}
             role="alert"
           >
-            <p className="text-sm leading-snug text-neutral-800 dark:text-neutral-200">
+            <p className="text-sm leading-snug text-red-600 dark:text-red-400">
               {toastMessage}
             </p>
           </div>
