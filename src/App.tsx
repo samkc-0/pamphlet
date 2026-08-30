@@ -315,6 +315,7 @@ function App() {
   } | null>(null);
   const [viewportKey, setViewportKey] = useState(() => getViewportKey());
   const [currentUser, setCurrentUser] = useState<SyncUser | null>(null);
+  const [isForceSyncing, setIsForceSyncing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -471,243 +472,253 @@ function App() {
   // actually paginated - see the pagination effect), and pinned words.
   // Guarded exactly like the seed-demo-book effect above, so it can't race
   // the local catalog/state load on startup.
-  useEffect(() => {
-    if (!currentUser || !isStateLoaded || !isBookCatalogLoaded) return;
+  // Pulls everything this account has synced from other devices: missing
+  // books, deletions (removes any local book the server has confirmed
+  // deleted), reading positions (stashed as pending markers, resolved
+  // lazily once each book is actually paginated - see the pagination
+  // effect), pinned words, settings, book-metadata overrides, and which
+  // screen was active. Shared by the sign-in effect below and the
+  // Settings screen's manual "Sync now" button. No unmount-cancellation
+  // guard here - App is the SPA's root component and doesn't unmount
+  // mid-session, so a stale in-flight call is not a real risk.
+  const pullRemoteState = useCallback(async () => {
+    if (!currentUser) return;
 
     const token = getStoredSessionToken();
     if (!token) return;
 
-    let cancelled = false;
+    const [
+      remoteBooks,
+      remoteProgress,
+      remotePinnedWords,
+      localPinnedRecords,
+      remoteSettings,
+      remoteBookMetadata,
+      remoteNavigationState
+    ] = await Promise.all([
+      fetchBookCatalog(token),
+      fetchAllProgress(token),
+      fetchAllPinnedWords(token),
+      loadAllPinnedWordRecords(),
+      fetchSettings(token),
+      fetchAllBookMetadata(token),
+      fetchNavigationState(token)
+    ]);
 
-    async function pullRemoteState() {
-      const [
-        remoteBooks,
-        remoteProgress,
-        remotePinnedWords,
-        localPinnedRecords,
-        remoteSettings,
-        remoteBookMetadata,
-        remoteNavigationState
-      ] = await Promise.all([
-        fetchBookCatalog(token as string),
-        fetchAllProgress(token as string),
-        fetchAllPinnedWords(token as string),
-        loadAllPinnedWordRecords(),
-        fetchSettings(token as string),
-        fetchAllBookMetadata(token as string),
-        fetchNavigationState(token as string)
-      ]);
-      if (cancelled) return;
+    let localCatalog = await refreshBookCatalog();
 
-      let localCatalog = await refreshBookCatalog();
+    // Propagate a deletion from another device: remove any book this
+    // device still has locally that the server has positively confirmed
+    // as deleted.
+    const remotelyDeletedHashes = new Set(
+      remoteBooks.filter((book) => book.deleted).map((book) => book.contentHash)
+    );
+    const booksToRemoveLocally = localCatalog.filter((book) =>
+      remotelyDeletedHashes.has(book.fingerprint)
+    );
+    for (const book of booksToRemoveLocally) {
+      await deleteStoredBook(book);
+      setOpenBookIds((current) => current.filter((id) => id !== book.id));
+      setLoadedBooks((current) => omitRecordKey(current, book.id));
+      setPaginatedBooks((current) => omitRecordKey(current, book.id));
+      setBookMetadataEdits((current) => omitRecordKey(current, book.id));
+      setSavedPageByBookId((current) => omitRecordKey(current, book.id));
+      setReadingProgressByBookId((current) => omitRecordKey(current, book.id));
+      setActivePageByRowId((current) => omitRecordKey(current, book.id));
+    }
+    if (booksToRemoveLocally.length > 0) {
+      localCatalog = await refreshBookCatalog();
+    }
 
-      // Propagate a deletion from another device: remove any book this
-      // device still has locally that the server has positively confirmed
-      // as deleted.
-      const remotelyDeletedHashes = new Set(
-        remoteBooks.filter((book) => book.deleted).map((book) => book.contentHash)
-      );
-      const booksToRemoveLocally = localCatalog.filter((book) =>
-        remotelyDeletedHashes.has(book.fingerprint)
-      );
-      for (const book of booksToRemoveLocally) {
-        await deleteStoredBook(book);
-        setOpenBookIds((current) => current.filter((id) => id !== book.id));
-        setLoadedBooks((current) => omitRecordKey(current, book.id));
-        setPaginatedBooks((current) => omitRecordKey(current, book.id));
-        setBookMetadataEdits((current) => omitRecordKey(current, book.id));
-        setSavedPageByBookId((current) => omitRecordKey(current, book.id));
-        setReadingProgressByBookId((current) => omitRecordKey(current, book.id));
-        setActivePageByRowId((current) => omitRecordKey(current, book.id));
+    const localHashes = new Set(localCatalog.map((book) => book.fingerprint));
+    const deletedHashes = new Set(locallyDeletedContentHashes);
+    const missingBooks = remoteBooks.filter(
+      (book) =>
+        !book.deleted &&
+        !localHashes.has(book.contentHash) &&
+        !deletedHashes.has(book.contentHash)
+    );
+
+    for (const summary of missingBooks) {
+      const content = await fetchBookContent(token, summary.contentHash);
+      if (!content) continue;
+
+      const now = Date.now();
+      const id = `${slugify(content.title || summary.title || "untitled")}-${summary.contentHash.slice(0, 12)}`;
+
+      await saveSyncedBook({
+        book: {
+          author: content.author,
+          createdAt: now,
+          fileName: `${content.title || "untitled"}.epub`,
+          fingerprint: summary.contentHash,
+          id,
+          language: content.language,
+          size: 0,
+          storageKey: id,
+          title: content.title,
+          updatedAt: now
+        },
+        content
+      });
+    }
+
+    const finalCatalog =
+      missingBooks.length > 0 ? await refreshBookCatalog() : localCatalog;
+    setBooks(finalCatalog);
+
+    const bookIdByContentHash = new Map(
+      finalCatalog.map((book) => [book.fingerprint, book.id])
+    );
+
+    setPendingRemoteMarkerByBookId((current) => {
+      const next = { ...current };
+
+      for (const progress of remoteProgress) {
+        const bookId = bookIdByContentHash.get(progress.contentHash);
+        if (!bookId) continue;
+
+        const pending = next[bookId];
+        if (pending && pending.updatedAt >= progress.updatedAt) continue;
+
+        next[bookId] = {
+          chapterId: progress.chapterId,
+          paragraphIndex: progress.paragraphIndex,
+          updatedAt: progress.updatedAt
+        };
       }
-      if (booksToRemoveLocally.length > 0) {
-        localCatalog = await refreshBookCatalog();
-      }
-      if (cancelled) return;
 
-      const localHashes = new Set(localCatalog.map((book) => book.fingerprint));
-      const deletedHashes = new Set(locallyDeletedContentHashes);
-      const missingBooks = remoteBooks.filter(
-        (book) =>
-          !book.deleted &&
-          !localHashes.has(book.contentHash) &&
-          !deletedHashes.has(book.contentHash)
-      );
+      return next;
+    });
 
-      for (const summary of missingBooks) {
-        const content = await fetchBookContent(
-          token as string,
-          summary.contentHash
-        );
-        if (!content || cancelled) continue;
+    const localPinnedByKey = new Map(
+      localPinnedRecords.map((record) => [record.id, record])
+    );
 
-        const now = Date.now();
-        const id = `${slugify(content.title || summary.title || "untitled")}-${summary.contentHash.slice(0, 12)}`;
+    for (const word of remotePinnedWords) {
+      const key = `${word.languageCode}::${word.word}`;
+      const local = localPinnedByKey.get(key);
+      if (local && local.updatedAt >= word.updatedAt) continue;
 
-        await saveSyncedBook({
-          book: {
-            author: content.author,
-            createdAt: now,
-            fileName: `${content.title || "untitled"}.epub`,
-            fingerprint: summary.contentHash,
-            id,
-            language: content.language,
-            size: 0,
-            storageKey: id,
-            title: content.title,
-            updatedAt: now
-          },
-          content
-        });
-      }
-      if (cancelled) return;
+      await setWordPinned(word.languageCode, word.word, true, word.updatedAt);
+    }
 
-      const finalCatalog =
-        missingBooks.length > 0 ? await refreshBookCatalog() : localCatalog;
-      if (cancelled) return;
-      setBooks(finalCatalog);
+    setBookMetadataEdits((current) => {
+      const next = { ...current };
 
-      const bookIdByContentHash = new Map(
-        finalCatalog.map((book) => [book.fingerprint, book.id])
-      );
+      for (const override of remoteBookMetadata) {
+        const bookId = bookIdByContentHash.get(override.contentHash);
+        if (!bookId) continue;
 
-      setPendingRemoteMarkerByBookId((current) => {
-        const next = { ...current };
-
-        for (const progress of remoteProgress) {
-          const bookId = bookIdByContentHash.get(progress.contentHash);
-          if (!bookId) continue;
-
-          const pending = next[bookId];
-          if (pending && pending.updatedAt >= progress.updatedAt) continue;
-
-          next[bookId] = {
-            chapterId: progress.chapterId,
-            paragraphIndex: progress.paragraphIndex,
-            updatedAt: progress.updatedAt
-          };
+        const existing = next[bookId];
+        if (existing?.updatedAt && existing.updatedAt >= override.updatedAt) {
+          continue;
         }
 
-        return next;
-      });
-
-      const localPinnedByKey = new Map(
-        localPinnedRecords.map((record) => [record.id, record])
-      );
-
-      for (const word of remotePinnedWords) {
-        if (cancelled) return;
-
-        const key = `${word.languageCode}::${word.word}`;
-        const local = localPinnedByKey.get(key);
-        if (local && local.updatedAt >= word.updatedAt) continue;
-
-        await setWordPinned(word.languageCode, word.word, true, word.updatedAt);
-      }
-
-      setBookMetadataEdits((current) => {
-        const next = { ...current };
-
-        for (const override of remoteBookMetadata) {
-          const bookId = bookIdByContentHash.get(override.contentHash);
-          if (!bookId) continue;
-
-          const existing = next[bookId];
-          if (existing?.updatedAt && existing.updatedAt >= override.updatedAt) {
-            continue;
-          }
-
-          next[bookId] = {
-            title: override.title,
-            author: override.author,
-            languageCode: getSupportedLanguageCode(override.languageCode),
-            dictionaryLanguageCode: isDictionaryLanguageCode(
-              override.dictionaryLanguageCode
-            )
-              ? override.dictionaryLanguageCode
-              : "en",
-            fontFamily: override.fontFamily === "sans" ? "sans" : "serif",
-            spanishVoiceRegion: isSpanishVoiceRegion(override.spanishVoiceRegion)
-              ? override.spanishVoiceRegion
-              : "es",
-            updatedAt: override.updatedAt
-          };
-        }
-
-        return next;
-      });
-
-      if (remoteSettings && !cancelled) {
-        const baseline = settingsBaseline.current;
-
-        if (!baseline || remoteSettings.updatedAt > baseline.updatedAt) {
-          const lastSpanishVoiceRegion = isSpanishVoiceRegion(
-            remoteSettings.lastSpanishVoiceRegion
+        next[bookId] = {
+          title: override.title,
+          author: override.author,
+          languageCode: getSupportedLanguageCode(override.languageCode),
+          dictionaryLanguageCode: isDictionaryLanguageCode(
+            override.dictionaryLanguageCode
           )
-            ? remoteSettings.lastSpanishVoiceRegion
-            : "es";
-
-          setAnimationsEnabled(remoteSettings.animationsEnabled);
-          setAutoPlayWordAudio(remoteSettings.autoPlayWordAudio);
-          setIsDarkMode(remoteSettings.isDarkMode);
-          setLastDictionaryLanguageCode(
-            remoteSettings.lastDictionaryLanguageCode
-          );
-          setLastSpanishVoiceRegion(lastSpanishVoiceRegion);
-
-          settingsBaseline.current = {
-            animationsEnabled: remoteSettings.animationsEnabled,
-            autoPlayWordAudio: remoteSettings.autoPlayWordAudio,
-            isDarkMode: remoteSettings.isDarkMode,
-            lastDictionaryLanguageCode: remoteSettings.lastDictionaryLanguageCode,
-            lastSpanishVoiceRegion,
-            updatedAt: remoteSettings.updatedAt
-          };
-        }
+            ? override.dictionaryLanguageCode
+            : "en",
+          fontFamily: override.fontFamily === "sans" ? "sans" : "serif",
+          spanishVoiceRegion: isSpanishVoiceRegion(override.spanishVoiceRegion)
+            ? override.spanishVoiceRegion
+            : "es",
+          updatedAt: override.updatedAt
+        };
       }
 
-      if (remoteNavigationState && !cancelled) {
-        const navBaseline = navigationBaseline.current;
+      return next;
+    });
 
-        if (!navBaseline || remoteNavigationState.updatedAt > navBaseline.updatedAt) {
-          const knownBookIdByContentHash = new Map(
-            finalCatalog.map((book) => [book.fingerprint, book.id])
-          );
+    if (remoteSettings) {
+      const baseline = settingsBaseline.current;
 
-          const nextOpenBookIds = remoteNavigationState.openContentHashes
-            .map((hash) => knownBookIdByContentHash.get(hash))
-            .filter((id): id is string => Boolean(id));
-          const nextActiveRowId =
-            knownBookIdByContentHash.get(remoteNavigationState.activeRowId) ??
-            (remoteNavigationState.activeRowId === "settings"
-              ? "settings"
-              : "library");
+      if (!baseline || remoteSettings.updatedAt > baseline.updatedAt) {
+        const lastSpanishVoiceRegion = isSpanishVoiceRegion(
+          remoteSettings.lastSpanishVoiceRegion
+        )
+          ? remoteSettings.lastSpanishVoiceRegion
+          : "es";
 
-          setOpenBookIds(nextOpenBookIds);
-          setActiveRowId(nextActiveRowId);
-          setActivePageByRowId((current) => ({
-            ...current,
-            library: remoteNavigationState.libraryPageId || current.library,
-            settings: remoteNavigationState.settingsPageId || current.settings
-          }));
+        setAnimationsEnabled(remoteSettings.animationsEnabled);
+        setAutoPlayWordAudio(remoteSettings.autoPlayWordAudio);
+        setIsDarkMode(remoteSettings.isDarkMode);
+        setLastDictionaryLanguageCode(
+          remoteSettings.lastDictionaryLanguageCode
+        );
+        setLastSpanishVoiceRegion(lastSpanishVoiceRegion);
 
-          navigationBaseline.current = {
-            activeRowId: remoteNavigationState.activeRowId,
-            openContentHashes: remoteNavigationState.openContentHashes,
-            libraryPageId: remoteNavigationState.libraryPageId,
-            settingsPageId: remoteNavigationState.settingsPageId,
-            updatedAt: remoteNavigationState.updatedAt
-          };
-        }
+        settingsBaseline.current = {
+          animationsEnabled: remoteSettings.animationsEnabled,
+          autoPlayWordAudio: remoteSettings.autoPlayWordAudio,
+          isDarkMode: remoteSettings.isDarkMode,
+          lastDictionaryLanguageCode: remoteSettings.lastDictionaryLanguageCode,
+          lastSpanishVoiceRegion,
+          updatedAt: remoteSettings.updatedAt
+        };
       }
     }
 
-    pullRemoteState();
+    if (remoteNavigationState) {
+      const navBaseline = navigationBaseline.current;
 
-    return () => {
-      cancelled = true;
-    };
-  }, [currentUser, isStateLoaded, isBookCatalogLoaded, locallyDeletedContentHashes]);
+      if (!navBaseline || remoteNavigationState.updatedAt > navBaseline.updatedAt) {
+        const knownBookIdByContentHash = new Map(
+          finalCatalog.map((book) => [book.fingerprint, book.id])
+        );
+
+        const nextOpenBookIds = remoteNavigationState.openContentHashes
+          .map((hash) => knownBookIdByContentHash.get(hash))
+          .filter((id): id is string => Boolean(id));
+        const nextActiveRowId =
+          knownBookIdByContentHash.get(remoteNavigationState.activeRowId) ??
+          (remoteNavigationState.activeRowId === "settings"
+            ? "settings"
+            : "library");
+
+        setOpenBookIds(nextOpenBookIds);
+        setActiveRowId(nextActiveRowId);
+        setActivePageByRowId((current) => ({
+          ...current,
+          library: remoteNavigationState.libraryPageId || current.library,
+          settings: remoteNavigationState.settingsPageId || current.settings
+        }));
+
+        navigationBaseline.current = {
+          activeRowId: remoteNavigationState.activeRowId,
+          openContentHashes: remoteNavigationState.openContentHashes,
+          libraryPageId: remoteNavigationState.libraryPageId,
+          settingsPageId: remoteNavigationState.settingsPageId,
+          updatedAt: remoteNavigationState.updatedAt
+        };
+      }
+    }
+  }, [currentUser, locallyDeletedContentHashes]);
+
+  // Guarded exactly like the seed-demo-book effect above, so the initial
+  // automatic pull can't race the local catalog/state load on startup.
+  useEffect(() => {
+    if (!currentUser || !isStateLoaded || !isBookCatalogLoaded) return;
+    pullRemoteState();
+  }, [currentUser, isStateLoaded, isBookCatalogLoaded, pullRemoteState]);
+
+  // Manual escape hatch for the Settings screen's "Sync now" button: the
+  // automatic pull only ever runs once per sign-in, so if another device
+  // pushes an update during a long session here, this is the only way to
+  // pick it up without reloading the page.
+  const forceSync = useCallback(async () => {
+    setIsForceSyncing(true);
+    try {
+      await pullRemoteState();
+    } finally {
+      setIsForceSyncing(false);
+    }
+  }, [pullRemoteState]);
 
   useEffect(() => {
     if (!isBookCatalogLoaded || books.length === 0) return;
@@ -1175,7 +1186,9 @@ function App() {
         books,
         bookMetadataEdits,
         currentUser,
+        forceSync,
         isDarkMode,
+        isForceSyncing,
         isSyncingState,
         isUploadingBooks,
         lastDictionaryLanguageCode,
@@ -1203,7 +1216,9 @@ function App() {
       books,
       bookMetadataEdits,
       currentUser,
+      forceSync,
       isDarkMode,
+      isForceSyncing,
       isSyncingState,
       isUploadingBooks,
       jumpToBookPage,
@@ -1334,7 +1349,9 @@ function createArticleRows({
   books,
   bookMetadataEdits,
   currentUser,
+  forceSync,
   isDarkMode,
+  isForceSyncing,
   isSyncingState,
   isUploadingBooks,
   jumpToBookPage,
@@ -1360,7 +1377,9 @@ function createArticleRows({
   books: BookSource[];
   bookMetadataEdits: Record<string, BookMetadataEdit>;
   currentUser: SyncUser | null;
+  forceSync: () => void;
   isDarkMode: boolean;
+  isForceSyncing: boolean;
   isSyncingState: boolean;
   isUploadingBooks: boolean;
   jumpToBookPage: (bookId: string, pageId: string) => void;
@@ -1391,7 +1410,9 @@ function createArticleRows({
               animationsEnabled={animationsEnabled}
               autoPlayWordAudio={autoPlayWordAudio}
               currentUser={currentUser}
+              forceSync={forceSync}
               isDarkMode={isDarkMode}
+              isForceSyncing={isForceSyncing}
               signIn={signIn}
               signOut={signOut}
               toggleAnimations={toggleAnimations}
@@ -1539,7 +1560,9 @@ function SettingsScreen({
   animationsEnabled,
   autoPlayWordAudio,
   currentUser,
+  forceSync,
   isDarkMode,
+  isForceSyncing,
   signIn,
   signOut,
   toggleAnimations,
@@ -1549,7 +1572,9 @@ function SettingsScreen({
   animationsEnabled: boolean;
   autoPlayWordAudio: boolean;
   currentUser: SyncUser | null;
+  forceSync: () => void;
   isDarkMode: boolean;
+  isForceSyncing: boolean;
   signIn: () => void;
   signOut: () => void;
   toggleAnimations: () => void;
@@ -1614,6 +1639,14 @@ function SettingsScreen({
               <p className="text-sm text-neutral-600 dark:text-neutral-400">
                 Signed in as {currentUser.email}
               </p>
+              <button
+                className="mx-auto block text-lg leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 disabled:text-neutral-400 dark:text-neutral-100 dark:focus-visible:text-neutral-400 dark:disabled:text-neutral-600"
+                disabled={isForceSyncing}
+                onClick={forceSync}
+                type="button"
+              >
+                {isForceSyncing ? "Syncing…" : "Sync now"}
+              </button>
               <button
                 className="mx-auto block text-lg leading-tight text-neutral-950 outline-none focus-visible:text-neutral-500 dark:text-neutral-100 dark:focus-visible:text-neutral-400"
                 onClick={signOut}
