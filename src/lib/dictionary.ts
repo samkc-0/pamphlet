@@ -1,3 +1,6 @@
+import { dictionaryKeyFor } from "@/lib/dictionary-catalog";
+import { loadDictionary, type StoredDictionary } from "@/lib/dictionaries-db";
+
 export type WordLookupResult = {
   kind: "definition" | "translation";
   text: string;
@@ -9,11 +12,69 @@ type DictionaryApiEntry = {
   }[];
 };
 
+// Loaded offline datasets, kept in memory for the rest of the session once
+// fetched from IndexedDB — a lookup is then a plain object property access,
+// not a repeated IndexedDB round-trip. `null` marks "checked, not
+// downloaded" so we don't keep re-checking IndexedDB for the same pair.
+const offlineDictionaryCache = new Map<string, StoredDictionary | null>();
+
+async function getOfflineDictionary(
+  key: string
+): Promise<StoredDictionary | null> {
+  const cached = offlineDictionaryCache.get(key);
+  if (cached !== undefined) return cached;
+
+  const loaded = (await loadDictionary(key).catch(() => undefined)) ?? null;
+  offlineDictionaryCache.set(key, loaded);
+  return loaded;
+}
+
+// Clears the in-memory cache entry for a dataset, so the settings screen
+// downloading/deleting it takes effect on the next lookup instead of
+// reusing a stale "not downloaded" result from earlier this session.
+export function invalidateOfflineDictionaryCache(key: string) {
+  offlineDictionaryCache.delete(key);
+}
+
+function lookupOffline(
+  dictionary: StoredDictionary,
+  word: string
+): string[] | undefined {
+  const direct = dictionary.lemmas[word];
+  if (direct) return direct;
+
+  const lemma = dictionary.forms[word];
+  if (lemma) return dictionary.lemmas[lemma];
+
+  // Running text often capitalizes a word (start of a sentence) that's
+  // stored under its lowercase dictionary form.
+  const lower = word.toLowerCase();
+  if (lower === word) return undefined;
+
+  const directLower = dictionary.lemmas[lower];
+  if (directLower) return directLower;
+
+  const lemmaLower = dictionary.forms[lower];
+  return lemmaLower ? dictionary.lemmas[lemmaLower] : undefined;
+}
+
 export async function lookupWord(
   word: string,
   bookLanguageCode: string,
   dictionaryLanguageCode: string
 ): Promise<WordLookupResult> {
+  const offline = await getOfflineDictionary(
+    dictionaryKeyFor(bookLanguageCode, dictionaryLanguageCode)
+  );
+  const offlineGlosses = offline ? lookupOffline(offline, word) : undefined;
+
+  if (offlineGlosses?.length) {
+    return {
+      kind: bookLanguageCode === dictionaryLanguageCode ? "definition" : "translation",
+      text: offlineGlosses.join("; ")
+    };
+  }
+
   if (bookLanguageCode === dictionaryLanguageCode) {
     return lookupDefinition(word, dictionaryLanguageCode);
   }

@@ -3,6 +3,7 @@ import type { FormEvent, MouseEvent, PointerEvent } from "react";
 import { Settings, UserRound } from "lucide-react";
 
 import type { BookSource } from "@/books";
+import { DictionariesScreen } from "@/components/dictionaries-screen";
 import {
   SentenceLookupPopup,
   type SentenceLookupState
@@ -201,6 +202,7 @@ const DEMO_BOOK_PATH = `/books/${DEMO_BOOK_FILE_NAME}`;
 const LIBRARY_BOOKS_PER_PAGE = 5;
 const LONG_PRESS_MS = 550;
 const MAX_OPEN_BOOKS = 5;
+const SYNC_POLL_INTERVAL_MS = 30_000;
 const LANGUAGE_CHOICES = [
   { code: "und", flagCode: "un", label: "Unsupported" },
   { code: "en", flagCode: "gb", label: "English" },
@@ -707,10 +709,25 @@ function App() {
     pullRemoteState();
   }, [currentUser, isStateLoaded, isBookCatalogLoaded, pullRemoteState]);
 
-  // Manual escape hatch for the Settings screen's "Sync now" button: the
-  // automatic pull only ever runs once per sign-in, so if another device
-  // pushes an update during a long session here, this is the only way to
-  // pick it up without reloading the page.
+  // Polling stand-in for real push-based sync: while signed in, periodically
+  // re-pull so another device's changes show up here without needing a
+  // manual "Sync now" tap or a page reload. Not instant, but for a reading
+  // app a sub-minute lag reads as "close enough to live" - true push
+  // (WebSockets/SSE) would need real new server infrastructure for what's
+  // otherwise a personal-scale, low-traffic app.
+  useEffect(() => {
+    if (!currentUser || !isStateLoaded || !isBookCatalogLoaded) return;
+
+    const intervalId = window.setInterval(() => {
+      pullRemoteState();
+    }, SYNC_POLL_INTERVAL_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [currentUser, isStateLoaded, isBookCatalogLoaded, pullRemoteState]);
+
+  // Manual escape hatch alongside the polling above: lets you pull
+  // immediately (e.g. right after you know you just changed something on
+  // another device) rather than waiting out the poll interval.
   const forceSync = useCallback(async () => {
     setIsForceSyncing(true);
     try {
@@ -1420,6 +1437,10 @@ function createArticleRows({
               toggleDarkMode={toggleDarkMode}
             />
           )
+        },
+        {
+          id: "dictionaries",
+          render: () => <DictionariesScreen />
         }
       ]
     },
