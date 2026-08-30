@@ -8,10 +8,4 @@ public/books/*
 !public/books/demo.epub
 public/book-assets/
 
-# Dictionary source dumps and trimmed output (tens of MB to GBs) — never
-# commit these. The trim scripts are the deliverable; the data itself is
-# uploaded straight to pamphlet-sync's server (see its DEPLOY.md).
-scripts/dictionary/raw/
-scripts/dictionary/out/
-
 .env

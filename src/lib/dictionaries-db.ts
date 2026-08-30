@@ -6,8 +6,8 @@ const DATABASE_OPEN_TIMEOUT_MS = 4000;
 // One record per downloaded language pair (e.g. "fr-fr", "fr-en"). lemmas
 // maps a headword to its glosses; forms maps an inflected surface form
 // (a conjugated verb, a plural, etc.) back to its headword in lemmas — see
-// pamphlet-sync's DEPLOY.md and scripts/dictionary/trim-lemma.ts for how
-// these are built.
+// pamphlet-project's DEPLOY.md and scripts/dictionary/trim-lemma.ts for
+// how these are built.
 export type StoredDictionary = {
   downloadedAt: number;
   forms: Record<string, string>;

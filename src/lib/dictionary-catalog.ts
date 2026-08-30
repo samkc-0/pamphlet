@@ -1,6 +1,6 @@
-// Built by pamphlet-sync/scripts/dictionary (kaikki.org Wiktionary dumps,
-// trimmed to headword -> gloss + inflected-form -> headword). See that
-// repo's DEPLOY.md for how these get onto the server.
+// Built by the pamphlet-project repo's scripts/dictionary/ (kaikki.org
+// Wiktionary dumps, trimmed to headword -> gloss + inflected-form ->
+// headword). See its DEPLOY.md for how these get onto the server.
 export type DictionaryCatalogEntry = {
   approxSizeMB: number;
   key: string;
