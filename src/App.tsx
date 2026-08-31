@@ -2630,7 +2630,7 @@ function ReaderScreen({
       .then((result) => {
         setSentenceLookup((current) =>
           current && current.sentence === text
-            ? { ...current, result: result.definitions[0], status: "ready" }
+            ? { ...current, result: result.senses[0].definitions[0], status: "ready" }
             : current
         );
       })

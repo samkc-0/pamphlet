@@ -1,9 +1,20 @@
 import { dictionaryKeyFor } from "@/lib/dictionary-catalog";
 import { loadDictionary, type StoredDictionary } from "@/lib/dictionaries-db";
 
-export type WordLookupResult = {
+// One "sense group": either a word's own definitions, or the definitions
+// of one lemma it's a conjugated/inflected form of (baseForm set, so the
+// UI can show e.g. "conjugation of poder"). A word can produce more than
+// one of these — it can be a headword in its own right *and* a form of
+// something else, or a form of several different lemmas at once (Spanish
+// "podemos" is a form of both "podar" and "poder").
+export type WordSense = {
+  baseForm?: string;
   definitions: string[];
+};
+
+export type WordLookupResult = {
   kind: "definition" | "translation";
+  senses: WordSense[];
 };
 
 type DictionaryApiEntry = {
@@ -36,26 +47,23 @@ export function invalidateOfflineDictionaryCache(key: string) {
   offlineDictionaryCache.delete(key);
 }
 
-function lookupOffline(
-  dictionary: StoredDictionary,
-  word: string
-): string[] | undefined {
-  const direct = dictionary.lemmas[word];
-  if (direct) return direct;
+function lookupOffline(dictionary: StoredDictionary, word: string): WordSense[] {
+  const senses: WordSense[] = [];
 
-  const lemma = dictionary.forms[word];
-  if (lemma) return dictionary.lemmas[lemma];
+  const own = dictionary.lemmas[word];
+  if (own?.length) senses.push({ definitions: own });
+
+  for (const baseForm of dictionary.forms[word] ?? []) {
+    const definitions = dictionary.lemmas[baseForm];
+    if (definitions?.length) senses.push({ baseForm, definitions });
+  }
+
+  if (senses.length > 0) return senses;
 
   // Running text often capitalizes a word (start of a sentence) that's
   // stored under its lowercase dictionary form.
   const lower = word.toLowerCase();
-  if (lower === word) return undefined;
-
-  const directLower = dictionary.lemmas[lower];
-  if (directLower) return directLower;
-
-  const lemmaLower = dictionary.forms[lower];
-  return lemmaLower ? dictionary.lemmas[lemmaLower] : undefined;
+  return lower === word ? [] : lookupOffline(dictionary, lower);
 }
 
 export async function lookupWord(
@@ -66,12 +74,12 @@ export async function lookupWord(
   const offline = await getOfflineDictionary(
     dictionaryKeyFor(bookLanguageCode, dictionaryLanguageCode)
   );
-  const offlineGlosses = offline ? lookupOffline(offline, word) : undefined;
+  const offlineSenses = offline ? lookupOffline(offline, word) : [];
 
-  if (offlineGlosses?.length) {
+  if (offlineSenses.length > 0) {
     return {
-      definitions: offlineGlosses,
-      kind: bookLanguageCode === dictionaryLanguageCode ? "definition" : "translation"
+      kind: bookLanguageCode === dictionaryLanguageCode ? "definition" : "translation",
+      senses: offlineSenses
     };
   }
 
@@ -105,7 +113,7 @@ async function lookupDefinition(
     throw new Error("No definition found.");
   }
 
-  return { definitions: [definition], kind: "definition" };
+  return { kind: "definition", senses: [{ definitions: [definition] }] };
 }
 
 export async function translateText(
@@ -132,7 +140,7 @@ export async function translateText(
     throw new Error("No translation found.");
   }
 
-  return { definitions: [translation], kind: "translation" };
+  return { kind: "translation", senses: [{ definitions: [translation] }] };
 }
 
 async function fetchWithRetry(

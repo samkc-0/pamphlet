@@ -42,7 +42,7 @@ export async function downloadDictionary(
 
   await saveDictionary({
     downloadedAt: Date.now(),
-    forms: forms as Record<string, string>,
+    forms: forms as Record<string, string[]>,
     key,
     lemmas: lemmas as Record<string, string[]>
   });

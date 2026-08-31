@@ -25,7 +25,7 @@ export function WordLookupPopup({
   onTogglePin: () => void;
 }) {
   const { popupRef, position } = usePopupPosition(lookup.anchorRect);
-  const definitions = lookup.result?.definitions ?? [];
+  const senses = lookup.result?.senses ?? [];
   const textClassName = `text-sm leading-relaxed ${
     lookup.languageCode === "und"
       ? "italic text-neutral-400 dark:text-neutral-500"
@@ -102,19 +102,34 @@ export function WordLookupPopup({
             <p className={textClassName}>Looking up…</p>
           ) : lookup.status === "error" ? (
             <p className={textClassName}>{lookup.error ?? "Not found."}</p>
-          ) : definitions.length > 1 ? (
-            <div className={`${textClassName} space-y-1.5 py-3`}>
-              {definitions.map((definition, index) => (
-                <div className="flex gap-2" key={index}>
-                  <span className="shrink-0 tabular-nums text-neutral-400 dark:text-neutral-500">
-                    {index + 1}.
-                  </span>
-                  <span>{definition}</span>
+          ) : senses.length > 0 ? (
+            <div className={`${textClassName} space-y-3 py-3`}>
+              {senses.map((sense, senseIndex) => (
+                <div key={senseIndex}>
+                  {sense.baseForm ? (
+                    <p className="mb-1 text-xs italic text-neutral-400 dark:text-neutral-500">
+                      conjugation of {sense.baseForm}
+                    </p>
+                  ) : null}
+                  {sense.definitions.length > 1 ? (
+                    <div className="space-y-1.5">
+                      {sense.definitions.map((definition, index) => (
+                        <div className="flex gap-2" key={index}>
+                          <span className="shrink-0 tabular-nums text-neutral-400 dark:text-neutral-500">
+                            {index + 1}.
+                          </span>
+                          <span>{definition}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>{sense.definitions[0]}</p>
+                  )}
                 </div>
               ))}
             </div>
           ) : (
-            <p className={`${textClassName} py-3`}>{definitions[0]}</p>
+            <p className={`${textClassName} py-3`}>Not found.</p>
           )}
         </div>
       </div>
