@@ -89,19 +89,32 @@ export function WordLookupPopup({
           </div>
         </div>
 
-        <div className="mt-2 max-h-[40vh] overflow-y-auto">
+        <div
+          className="mt-2 max-h-[40dvh] overflow-y-auto"
+          style={{
+            WebkitMaskImage:
+              "linear-gradient(to bottom, transparent, black 12px, black calc(100% - 12px), transparent)",
+            maskImage:
+              "linear-gradient(to bottom, transparent, black 12px, black calc(100% - 12px), transparent)"
+          }}
+        >
           {lookup.status === "loading" ? (
             <p className={textClassName}>Looking up…</p>
           ) : lookup.status === "error" ? (
             <p className={textClassName}>{lookup.error ?? "Not found."}</p>
           ) : definitions.length > 1 ? (
-            <ol className={`${textClassName} list-decimal space-y-1 pl-4`}>
+            <div className={`${textClassName} space-y-1.5 py-3`}>
               {definitions.map((definition, index) => (
-                <li key={index}>{definition}</li>
+                <div className="flex gap-2" key={index}>
+                  <span className="shrink-0 tabular-nums text-neutral-400 dark:text-neutral-500">
+                    {index + 1}.
+                  </span>
+                  <span>{definition}</span>
+                </div>
               ))}
-            </ol>
+            </div>
           ) : (
-            <p className={textClassName}>{definitions[0]}</p>
+            <p className={`${textClassName} py-3`}>{definitions[0]}</p>
           )}
         </div>
       </div>
