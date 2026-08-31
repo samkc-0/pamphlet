@@ -2,8 +2,8 @@ import { dictionaryKeyFor } from "@/lib/dictionary-catalog";
 import { loadDictionary, type StoredDictionary } from "@/lib/dictionaries-db";
 
 export type WordLookupResult = {
+  definitions: string[];
   kind: "definition" | "translation";
-  text: string;
 };
 
 type DictionaryApiEntry = {
@@ -70,8 +70,8 @@ export async function lookupWord(
 
   if (offlineGlosses?.length) {
     return {
-      kind: bookLanguageCode === dictionaryLanguageCode ? "definition" : "translation",
-      text: offlineGlosses.join("; ")
+      definitions: offlineGlosses,
+      kind: bookLanguageCode === dictionaryLanguageCode ? "definition" : "translation"
     };
   }
 
@@ -105,7 +105,7 @@ async function lookupDefinition(
     throw new Error("No definition found.");
   }
 
-  return { kind: "definition", text: definition };
+  return { definitions: [definition], kind: "definition" };
 }
 
 export async function translateText(
@@ -132,7 +132,7 @@ export async function translateText(
     throw new Error("No translation found.");
   }
 
-  return { kind: "translation", text: translation };
+  return { definitions: [translation], kind: "translation" };
 }
 
 async function fetchWithRetry(

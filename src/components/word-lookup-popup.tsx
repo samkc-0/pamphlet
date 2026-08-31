@@ -25,6 +25,12 @@ export function WordLookupPopup({
   onTogglePin: () => void;
 }) {
   const { popupRef, position } = usePopupPosition(lookup.anchorRect);
+  const definitions = lookup.result?.definitions ?? [];
+  const textClassName = `mt-2 text-sm leading-relaxed ${
+    lookup.languageCode === "und"
+      ? "italic text-neutral-400 dark:text-neutral-500"
+      : "text-neutral-700 dark:text-neutral-300"
+  }`;
 
   return (
     <div className="fixed inset-0 z-40" onClick={onDismiss}>
@@ -83,19 +89,19 @@ export function WordLookupPopup({
           </div>
         </div>
 
-        <p
-          className={`mt-2 text-sm leading-relaxed ${
-            lookup.languageCode === "und"
-              ? "italic text-neutral-400 dark:text-neutral-500"
-              : "text-neutral-700 dark:text-neutral-300"
-          }`}
-        >
-          {lookup.status === "loading"
-            ? "Looking up…"
-            : lookup.status === "error"
-              ? (lookup.error ?? "Not found.")
-              : lookup.result?.text}
-        </p>
+        {lookup.status === "loading" ? (
+          <p className={textClassName}>Looking up…</p>
+        ) : lookup.status === "error" ? (
+          <p className={textClassName}>{lookup.error ?? "Not found."}</p>
+        ) : definitions.length > 1 ? (
+          <ol className={`${textClassName} list-decimal space-y-1 pl-4`}>
+            {definitions.map((definition, index) => (
+              <li key={index}>{definition}</li>
+            ))}
+          </ol>
+        ) : (
+          <p className={textClassName}>{definitions[0]}</p>
+        )}
       </div>
     </div>
   );
