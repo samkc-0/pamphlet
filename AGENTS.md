@@ -25,6 +25,38 @@ is present.
 Work happens on `sandbox`. **Never push or merge to `main`** — that is done
 manually by the maintainer, deliberately, after reviewing `sandbox`.
 
+For a feature that needs real isolation — a longer-running experiment, or
+anything you don't want colliding with whatever else is happening on
+`sandbox` right now — use a **git worktree** rather than switching branches
+in this checkout:
+
+```
+git worktree add ../feature-name -b feature-name
+```
+
+This checks `feature-name` out into a sibling directory
+(`pamphlet-project/feature-name`, next to this `pamphlet` checkout) with
+its own working tree. Run `bun install` there before anything else —
+`node_modules`, `dist`, and IndexedDB-backed dev state are per-worktree,
+not shared, so a fresh worktree starts without them. The upside is that
+switching branches in one worktree never disturbs what's checked out in
+another, which matters here specifically: this repo has had another
+process (the maintainer's own editor, or a concurrent agent session)
+commit directly to a branch mid-task before — a worktree makes that a
+non-event instead of a collision.
+
+Work happens in the worktree like any other feature branch. When it's
+merged into `sandbox`, clean up rather than leaving it around:
+
+```
+git worktree remove ../feature-name
+git branch -d feature-name
+```
+
+If a worktree's directory ever gets deleted without running `remove`
+first, `git worktree list` will show it as `prunable` — clear those with
+`git worktree prune`.
+
 ## Style
 
 - No comments unless the *why* is genuinely non-obvious (a hidden
