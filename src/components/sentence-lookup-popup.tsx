@@ -53,7 +53,7 @@ export function SentenceLookupPopup({
         <div className="flex items-start justify-between gap-3">
           <p
             className={`font-serif text-base italic text-neutral-950 dark:text-neutral-100 ${
-              isPlaying ? "sentence-highlight" : ""
+              isPlaying ? "underline underline-offset-2" : ""
             }`}
           >
             {lookup.sentence}
