@@ -2614,6 +2614,7 @@ function ReaderScreen({
             ? "Set a book language to translate text."
             : "Text is already in your dictionary language.",
         isInstructional: true,
+        languageCode: spokenLanguageCode,
         sentence: text,
         status: "error"
       });
@@ -2622,6 +2623,7 @@ function ReaderScreen({
 
     setSentenceLookup({
       anchorRect,
+      languageCode: spokenLanguageCode,
       sentence: text,
       status: "loading"
     });
