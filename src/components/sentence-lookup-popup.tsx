@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Volume2, VolumeX } from "lucide-react";
+import { Circle, Volume2, VolumeX } from "lucide-react";
 
 import { speakText } from "@/lib/speech";
 import { usePopupPosition } from "@/lib/use-popup-position";
@@ -9,6 +9,7 @@ export type SentenceLookupState = {
   error?: string;
   isInstructional?: boolean;
   languageCode?: string;
+  pinned: boolean;
   result?: string;
   sentence: string;
   status: "error" | "loading" | "ready";
@@ -16,10 +17,12 @@ export type SentenceLookupState = {
 
 export function SentenceLookupPopup({
   lookup,
-  onDismiss
+  onDismiss,
+  onTogglePin
 }: {
   lookup: SentenceLookupState;
   onDismiss: () => void;
+  onTogglePin: () => void;
 }) {
   const { popupRef, position } = usePopupPosition(lookup.anchorRect);
   const isMuted = Boolean(lookup.isInstructional);
@@ -58,27 +61,45 @@ export function SentenceLookupPopup({
           >
             {lookup.sentence}
           </p>
-          <button
-            aria-label={
-              canPlayAudio
-                ? "Listen"
-                : "Listen (unavailable for this language)"
-            }
-            className={`shrink-0 rounded-full p-1 ${
-              canPlayAudio
-                ? "text-neutral-500 dark:text-neutral-400"
-                : "text-neutral-300 dark:text-neutral-600"
-            }`}
-            disabled={!canPlayAudio}
-            onClick={handlePlay}
-            type="button"
-          >
-            {canPlayAudio ? (
-              <Volume2 className="h-4 w-4" />
-            ) : (
-              <VolumeX className="h-4 w-4" />
-            )}
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            <button
+              aria-label={
+                canPlayAudio
+                  ? "Listen"
+                  : "Listen (unavailable for this language)"
+              }
+              className={`rounded-full p-1 ${
+                canPlayAudio
+                  ? "text-neutral-500 dark:text-neutral-400"
+                  : "text-neutral-300 dark:text-neutral-600"
+              }`}
+              disabled={!canPlayAudio}
+              onClick={handlePlay}
+              type="button"
+            >
+              {canPlayAudio ? (
+                <Volume2 className="h-4 w-4" />
+              ) : (
+                <VolumeX className="h-4 w-4" />
+              )}
+            </button>
+            <button
+              aria-label={lookup.pinned ? "Unpin sentence" : "Pin sentence"}
+              aria-pressed={lookup.pinned}
+              className={`rounded-full p-1 ${
+                lookup.pinned
+                  ? "text-neutral-950 dark:text-neutral-100"
+                  : "text-neutral-400 dark:text-neutral-600"
+              }`}
+              onClick={onTogglePin}
+              type="button"
+            >
+              <Circle
+                className="h-3 w-3"
+                fill={lookup.pinned ? "currentColor" : "none"}
+              />
+            </button>
+          </div>
         </div>
 
         <p

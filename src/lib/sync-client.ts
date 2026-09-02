@@ -32,6 +32,12 @@ export type SyncedProgress = {
   updatedAt: number;
 };
 
+export type SyncedPinnedSentence = {
+  languageCode: string;
+  sentence: string;
+  updatedAt: number;
+};
+
 export type SyncedPinnedWord = {
   languageCode: string;
   word: string;
@@ -295,6 +301,48 @@ export async function fetchAllPinnedWords(
   return records.map((record) => ({
     languageCode: record.languageCode,
     word: record.word,
+    updatedAt: fromWireTimestamp(record.updatedAt)
+  }));
+}
+
+export async function pushPinnedSentence(
+  token: string,
+  entry: {
+    languageCode: string;
+    sentence: string;
+    pinned: boolean;
+    updatedAt: number;
+  }
+) {
+  await authorizedFetch("/pinned-sentences", token, {
+    method: "POST",
+    body: JSON.stringify({
+      languageCode: entry.languageCode,
+      sentence: entry.sentence,
+      pinned: entry.pinned,
+      updatedAt: toWireTimestamp(entry.updatedAt)
+    })
+  }).catch((error: unknown) => {
+    console.error("Failed to sync pinned sentence to server.", error);
+  });
+}
+
+/** Lists the signed-in user's currently-pinned sentences (unpinned sentences are never returned). */
+export async function fetchAllPinnedSentences(
+  token: string
+): Promise<SyncedPinnedSentence[]> {
+  const response = await authorizedFetch("/pinned-sentences", token);
+  if (!response.ok) return [];
+
+  const records = (await response.json()) as Array<{
+    languageCode: string;
+    sentence: string;
+    updatedAt: string;
+  }>;
+
+  return records.map((record) => ({
+    languageCode: record.languageCode,
+    sentence: record.sentence,
     updatedAt: fromWireTimestamp(record.updatedAt)
   }));
 }

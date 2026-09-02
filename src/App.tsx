@@ -43,6 +43,11 @@ import {
   type ReaderPage
 } from "@/lib/pagination";
 import {
+  loadAllPinnedSentenceRecords,
+  loadPinnedSentences,
+  setSentencePinned
+} from "@/lib/pinned-sentences";
+import {
   loadAllPinnedWordRecords,
   loadPinnedWords,
   setWordPinned
@@ -54,6 +59,7 @@ import {
   consumeSessionTokenFromLocation,
   endSession,
   fetchAllBookMetadata,
+  fetchAllPinnedSentences,
   fetchAllPinnedWords,
   fetchAllProgress,
   fetchBookCatalog,
@@ -69,6 +75,7 @@ import {
   pushBookDeletion,
   pushBookMetadata,
   pushNavigationState,
+  pushPinnedSentence,
   pushPinnedWord,
   pushProgress,
   pushSettings,
@@ -506,6 +513,8 @@ function App() {
       remoteProgress,
       remotePinnedWords,
       localPinnedRecords,
+      remotePinnedSentences,
+      localPinnedSentenceRecords,
       remoteSettings,
       remoteBookMetadata,
       remoteNavigationState
@@ -514,6 +523,8 @@ function App() {
       fetchAllProgress(token),
       fetchAllPinnedWords(token),
       loadAllPinnedWordRecords(),
+      fetchAllPinnedSentences(token),
+      loadAllPinnedSentenceRecords(),
       fetchSettings(token),
       fetchAllBookMetadata(token),
       fetchNavigationState(token)
@@ -615,6 +626,23 @@ function App() {
       if (local && local.updatedAt >= word.updatedAt) continue;
 
       await setWordPinned(word.languageCode, word.word, true, word.updatedAt);
+    }
+
+    const localPinnedSentenceByKey = new Map(
+      localPinnedSentenceRecords.map((record) => [record.id, record])
+    );
+
+    for (const sentence of remotePinnedSentences) {
+      const key = `${sentence.languageCode}::${sentence.sentence}`;
+      const local = localPinnedSentenceByKey.get(key);
+      if (local && local.updatedAt >= sentence.updatedAt) continue;
+
+      await setSentencePinned(
+        sentence.languageCode,
+        sentence.sentence,
+        true,
+        sentence.updatedAt
+      );
     }
 
     setBookMetadataEdits((current) => {
@@ -2476,6 +2504,9 @@ function ReaderScreen({
     languageCode === "es" ? spanishVoiceRegion : languageCode;
   const [pageDraft, setPageDraft] = useState(String(pageNumber));
   const [pinnedWords, setPinnedWords] = useState<Set<string>>(new Set());
+  const [pinnedSentences, setPinnedSentences] = useState<Set<string>>(
+    new Set()
+  );
   const [lookup, setLookup] = useState<WordLookupState | null>(null);
   const [wordLookupHighlight, setWordLookupHighlight] = useState<{
     paragraphIndex: number;
@@ -2496,6 +2527,27 @@ function ReaderScreen({
     () => paragraphs.map((paragraph) => tokenizeParagraphWithOffsets(paragraph)),
     [paragraphs]
   );
+  // Character ranges of pinned sentences within each paragraph, so the
+  // whole underlined span can cover punctuation/whitespace between words
+  // too, not just the individual word tokens - a pinned sentence with a
+  // dashed underline only under its words, with gaps at every space, would
+  // read as broken rather than "this whole sentence is pinned".
+  const pinnedSentenceRangesByParagraph = useMemo(() => {
+    if (pinnedSentences.size === 0) return [];
+
+    return paragraphs.map((paragraph) => {
+      const ranges: Array<{ start: number; end: number }> = [];
+
+      for (const sentence of pinnedSentences) {
+        const start = paragraph.indexOf(sentence);
+        if (start === -1) continue;
+
+        ranges.push({ start, end: start + sentence.length });
+      }
+
+      return ranges;
+    });
+  }, [paragraphs, pinnedSentences]);
 
   useEffect(() => {
     setPageDraft(String(pageNumber));
@@ -2514,6 +2566,18 @@ function ReaderScreen({
 
     loadPinnedWords(languageCode).then((words) => {
       if (!cancelled) setPinnedWords(words);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [languageCode]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    loadPinnedSentences(languageCode).then((sentences) => {
+      if (!cancelled) setPinnedSentences(sentences);
     });
 
     return () => {
@@ -2615,6 +2679,7 @@ function ReaderScreen({
             : "Text is already in your dictionary language.",
         isInstructional: true,
         languageCode: spokenLanguageCode,
+        pinned: pinnedSentences.has(text),
         sentence: text,
         status: "error"
       });
@@ -2624,6 +2689,7 @@ function ReaderScreen({
     setSentenceLookup({
       anchorRect,
       languageCode: spokenLanguageCode,
+      pinned: pinnedSentences.has(text),
       sentence: text,
       status: "loading"
     });
@@ -2749,6 +2815,41 @@ function ReaderScreen({
     }
   };
 
+  const handleSentenceTogglePin = () => {
+    if (!sentenceLookup) return;
+
+    const nextPinned = !sentenceLookup.pinned;
+    const { sentence } = sentenceLookup;
+
+    setSentenceLookup({ ...sentenceLookup, pinned: nextPinned });
+    setPinnedSentences((current) => {
+      const next = new Set(current);
+
+      if (nextPinned) {
+        next.add(sentence);
+      } else {
+        next.delete(sentence);
+      }
+
+      return next;
+    });
+
+    const updatedAt = Date.now();
+    setSentencePinned(languageCode, sentence, nextPinned, updatedAt).catch(
+      () => {}
+    );
+
+    const token = getStoredSessionToken();
+    if (currentUser && token) {
+      pushPinnedSentence(token, {
+        languageCode,
+        sentence,
+        pinned: nextPinned,
+        updatedAt
+      });
+    }
+  };
+
   const commitPageDraft = () => {
     const parsedPage = Number.parseInt(pageDraft, 10);
     const nextPage = clampNumber(
@@ -2822,10 +2923,18 @@ function ReaderScreen({
                       tokenIndex <= selectionRange.maxIndex) ||
                     (wordLookupHighlight?.paragraphIndex === paragraphIndex &&
                       wordLookupHighlight?.tokenIndex === tokenIndex);
+                  const isPinnedSentenceToken = (
+                    pinnedSentenceRangesByParagraph[paragraphIndex] ?? []
+                  ).some(
+                    (range) => token.start >= range.start && token.end <= range.end
+                  );
 
                   if (token.type === "word") {
                     const classNames = ["reader-word"];
-                    if (pinnedWords.has(normalizeWord(token.value))) {
+                    if (
+                      pinnedWords.has(normalizeWord(token.value)) ||
+                      isPinnedSentenceToken
+                    ) {
                       classNames.push("reader-word--pinned");
                     }
                     if (isHighlighted) {
@@ -2864,9 +2973,17 @@ function ReaderScreen({
                     );
                   }
 
+                  const textClassNames = [];
+                  if (isPinnedSentenceToken) {
+                    textClassNames.push("reader-word--pinned");
+                  }
+                  if (isHighlighted) {
+                    textClassNames.push("sentence-highlight");
+                  }
+
                   return (
                     <span
-                      className={isHighlighted ? "sentence-highlight" : ""}
+                      className={textClassNames.join(" ")}
                       data-paragraph-index={paragraphIndex}
                       data-token-index={tokenIndex}
                       key={tokenIndex}
@@ -2896,6 +3013,7 @@ function ReaderScreen({
         <SentenceLookupPopup
           lookup={sentenceLookup}
           onDismiss={handleSentenceDismiss}
+          onTogglePin={handleSentenceTogglePin}
         />
       ) : null}
     </article>
