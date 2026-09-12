@@ -1573,30 +1573,38 @@ function createBookRow(
       initialPageId: savedPageId,
       pages: pages.map((page, index) => ({
         id: page.id,
-        render: () => (
-          <ReaderScreen
-            author={metadata.author}
-            autoPlayWordAudio={Boolean(autoPlayWordAudio)}
-            currentUser={currentUser ?? null}
-            dictionaryLanguageCode={metadata.dictionaryLanguageCode}
-            fontFamily={metadata.fontFamily}
-            isSyncingState={Boolean(isSyncingState)}
-            languageCode={metadata.languageCode}
-            spanishVoiceRegion={metadata.spanishVoiceRegion}
-            pageNumber={index + 1}
-            pageTotal={pages.length}
-            chapterTitle={page.chapterTitle}
-            onPageChange={(pageNumber) => {
-              const nextPage = pages[pageNumber - 1];
+        render: () =>
+          page.isTitlePage ? (
+            <ChapterTitleScreen
+              author={metadata.author}
+              chapterTitle={page.chapterTitle ?? ""}
+              fontFamily={metadata.fontFamily}
+              languageCode={metadata.languageCode}
+              title={metadata.title}
+            />
+          ) : (
+            <ReaderScreen
+              author={metadata.author}
+              autoPlayWordAudio={Boolean(autoPlayWordAudio)}
+              currentUser={currentUser ?? null}
+              dictionaryLanguageCode={metadata.dictionaryLanguageCode}
+              fontFamily={metadata.fontFamily}
+              isSyncingState={Boolean(isSyncingState)}
+              languageCode={metadata.languageCode}
+              spanishVoiceRegion={metadata.spanishVoiceRegion}
+              pageNumber={index + 1}
+              pageTotal={pages.length}
+              onPageChange={(pageNumber) => {
+                const nextPage = pages[pageNumber - 1];
 
-              if (nextPage) {
-                jumpToBookPage?.(book.id, nextPage.id);
-              }
-            }}
-            paragraphs={page.paragraphs}
-            title={metadata.title}
-          />
-        )
+                if (nextPage) {
+                  jumpToBookPage?.(book.id, nextPage.id);
+                }
+              }}
+              paragraphs={page.paragraphs}
+              title={metadata.title}
+            />
+          )
       }))
     };
   }
@@ -2472,7 +2480,6 @@ function LibraryScreen({
 function ReaderScreen({
   author,
   autoPlayWordAudio,
-  chapterTitle,
   currentUser,
   dictionaryLanguageCode,
   fontFamily,
@@ -2487,7 +2494,6 @@ function ReaderScreen({
 }: {
   author: string;
   autoPlayWordAudio: boolean;
-  chapterTitle?: string;
   currentUser: SyncUser | null;
   dictionaryLanguageCode: string;
   fontFamily: FontFamily;
@@ -2910,9 +2916,6 @@ function ReaderScreen({
 
       <div className="mx-auto flex min-h-0 w-full max-w-3xl min-w-0 flex-col justify-start overflow-hidden py-5 sm:py-8">
         <div className="reader-page-content">
-          {chapterTitle ? (
-            <div className="reader-chapter-heading">{chapterTitle}</div>
-          ) : null}
           <div className="reader-page-body">
             {paragraphs.map((paragraph, paragraphIndex) => (
               <p key={`${pageNumber}-${paragraphIndex}`}>
@@ -3017,6 +3020,55 @@ function ReaderScreen({
         />
       ) : null}
     </article>
+  );
+}
+
+// A standalone page shown once per chapter (when it has a detected title),
+// ahead of its body text. Deliberately follows the same book's own display
+// choices - fontFamily and languageCode both come from getBookMetadata(),
+// the same merge (edit override -> parsed epub -> stored catalog record)
+// every other screen for this book already uses - rather than introducing
+// a separate "chapter title styling" concept.
+function ChapterTitleScreen({
+  author,
+  chapterTitle,
+  fontFamily,
+  languageCode,
+  title
+}: {
+  author: string;
+  chapterTitle: string;
+  fontFamily: FontFamily;
+  languageCode: string;
+  title: string;
+}) {
+  return (
+    <div
+      className={`flex h-full w-full items-center justify-center px-6 text-center text-neutral-950 dark:text-neutral-100 ${
+        fontFamily === "sans" ? "sans-serif-font" : ""
+      }`}
+      lang={languageCode}
+    >
+      <div className="mx-auto w-full max-w-md">
+        <span
+          aria-hidden="true"
+          className="mx-auto block h-0.5 w-full rounded-full bg-neutral-200 dark:bg-neutral-800"
+        />
+        <h1 className="mt-6 font-['Cormorant_Unicase'] text-4xl font-bold leading-tight sm:text-5xl">
+          {chapterTitle}
+        </h1>
+        <span
+          aria-hidden="true"
+          className="mx-auto mt-6 block h-0.5 w-full rounded-full bg-neutral-200 dark:bg-neutral-800"
+        />
+        <p className="mt-6 text-lg text-neutral-600 dark:text-neutral-400">
+          {title}
+        </p>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-500">
+          {author}
+        </p>
+      </div>
+    </div>
   );
 }
 

@@ -4,7 +4,11 @@ import type { ReaderPage } from "@/lib/pagination";
 const CACHE_DATABASE_NAME = "pamphlet-cache";
 const CACHE_DATABASE_VERSION = 1;
 const PAGINATION_STORE_NAME = "pagination";
-const PAGINATION_CACHE_VERSION = 1;
+// Bump whenever paginateChapter's output shape/format changes (e.g. new
+// ReaderPage fields, different page counts per chapter) - this is separate
+// from book fingerprint/viewport, so it's the way to make old cached pages
+// from before such a change get orphaned instead of silently served stale.
+const PAGINATION_CACHE_VERSION = 2;
 
 export type CachedPagination = {
   bookId: string;

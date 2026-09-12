@@ -4,6 +4,7 @@ export type ReaderPage = {
   chapterId: string;
   chapterTitle?: string;
   id: string;
+  isTitlePage?: boolean;
   paragraphs: string[];
   startParagraphIndex: number;
 };
@@ -80,6 +81,25 @@ function paginateChapter(
   maxHeight: number
 ) {
   const pages: ReaderPage[] = [];
+
+  // A standalone title page, not a heading sharing space with body text -
+  // only when there's an actual title to show; a chapter with none just
+  // falls through to today's plain page-1 behavior. Its id is a distinct
+  // suffix (not a pageIndex), inserted ahead of the content pages below
+  // without renumbering them, so any reading position already saved
+  // locally or mid-flight as a sync marker still resolves to the same
+  // content it always did.
+  if (chapter.chapterTitle) {
+    pages.push({
+      chapterId: chapter.id,
+      chapterTitle: chapter.chapterTitle,
+      id: `${chapter.id}-title`,
+      isTitlePage: true,
+      paragraphs: [],
+      startParagraphIndex: 0
+    });
+  }
+
   const paragraphs = [...chapter.paragraphs];
   let pageParagraphs: string[] = [];
   let pageIndex = 1;
@@ -96,11 +116,7 @@ function paginateChapter(
 
     const paragraph = paragraphs[paragraphIndex];
     const nextParagraphs = [...pageParagraphs, paragraph];
-    const nextHeight = measurePage(
-      measurer,
-      getPageChapterTitle(chapter, pageIndex),
-      nextParagraphs
-    );
+    const nextHeight = measurePage(measurer, nextParagraphs);
 
     if (nextHeight <= maxHeight) {
       pageParagraphs = nextParagraphs;
@@ -110,7 +126,6 @@ function paginateChapter(
 
     const split = splitParagraphToFit(
       measurer,
-      getPageChapterTitle(chapter, pageIndex),
       pageParagraphs,
       paragraph,
       maxHeight
@@ -124,7 +139,6 @@ function paginateChapter(
     if (pageParagraphs.length > 0) {
       pages.push({
         chapterId: chapter.id,
-        chapterTitle: getPageChapterTitle(chapter, pageIndex),
         id: `${chapter.id}-${pageIndex}`,
         paragraphs: pageParagraphs,
         startParagraphIndex: pageStartParagraphIndex
@@ -135,17 +149,10 @@ function paginateChapter(
       continue;
     }
 
-    const forcedSplit = splitParagraphToFit(
-      measurer,
-      getPageChapterTitle(chapter, pageIndex),
-      [],
-      paragraph,
-      maxHeight
-    );
+    const forcedSplit = splitParagraphToFit(measurer, [], paragraph, maxHeight);
 
     pages.push({
       chapterId: chapter.id,
-      chapterTitle: getPageChapterTitle(chapter, pageIndex),
       id: `${chapter.id}-${pageIndex}`,
       paragraphs: [forcedSplit.fittingText || paragraph],
       startParagraphIndex: pageStartParagraphIndex
@@ -163,7 +170,6 @@ function paginateChapter(
   if (pageParagraphs.length > 0) {
     pages.push({
       chapterId: chapter.id,
-      chapterTitle: getPageChapterTitle(chapter, pageIndex),
       id: `${chapter.id}-${pageIndex}`,
       paragraphs: pageParagraphs,
       startParagraphIndex: pageStartParagraphIndex
@@ -175,7 +181,6 @@ function paginateChapter(
 
 function splitParagraphToFit(
   measurer: ReturnType<typeof createMeasurer>,
-  chapterTitle: string | undefined,
   baseParagraphs: string[],
   paragraph: string,
   maxHeight: number
@@ -195,7 +200,6 @@ function splitParagraphToFit(
     const candidate = words.slice(0, mid).join(" ");
     const height = measurePage(
       measurer,
-      chapterTitle,
       candidate ? [...baseParagraphs, candidate] : baseParagraphs
     );
 
@@ -221,23 +225,11 @@ function splitParagraphToFit(
   };
 }
 
-function getPageChapterTitle(chapter: EpubSection, pageIndex: number) {
-  return pageIndex === 1 ? chapter.chapterTitle : undefined;
-}
-
 function measurePage(
   measurer: ReturnType<typeof createMeasurer>,
-  chapterTitle: string | undefined,
   paragraphs: string[]
 ) {
   measurer.content.replaceChildren();
-
-  if (chapterTitle) {
-    const heading = document.createElement("div");
-    heading.className = "reader-chapter-heading";
-    heading.textContent = chapterTitle;
-    measurer.content.append(heading);
-  }
 
   const body = document.createElement("div");
   body.className = "reader-page-body";
