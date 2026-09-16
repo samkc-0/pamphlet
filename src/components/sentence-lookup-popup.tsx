@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Circle, Volume2, VolumeX } from "lucide-react";
+import { Circle, NotebookPen, Volume2, VolumeX } from "lucide-react";
 
 import { speakText } from "@/lib/speech";
 import { usePopupPosition } from "@/lib/use-popup-position";
@@ -18,10 +18,12 @@ export type SentenceLookupState = {
 export function SentenceLookupPopup({
   lookup,
   onDismiss,
+  onSendToNotebook,
   onTogglePin
 }: {
   lookup: SentenceLookupState;
   onDismiss: () => void;
+  onSendToNotebook?: () => void;
   onTogglePin: () => void;
 }) {
   const { popupRef, position } = usePopupPosition(lookup.anchorRect);
@@ -99,6 +101,16 @@ export function SentenceLookupPopup({
                 fill={lookup.pinned ? "currentColor" : "none"}
               />
             </button>
+            {onSendToNotebook ? (
+              <button
+                aria-label="Send to notebook"
+                className="rounded-full p-1 text-neutral-500 dark:text-neutral-400"
+                onClick={onSendToNotebook}
+                type="button"
+              >
+                <NotebookPen className="h-4 w-4" />
+              </button>
+            ) : null}
           </div>
         </div>
 

@@ -8,11 +8,13 @@ const BOOKS_STORE_NAME = "books";
 const DATABASE_OPEN_TIMEOUT_MS = 4000;
 
 // A book's data is either the original file's raw bytes (uploaded on this
-// device, re-parsed on every read) or already-extracted text pulled from
-// another device via sync (which never had a local raw file to begin with).
+// device, re-parsed on every read), already-extracted text pulled from
+// another device via sync (which never had a local raw file to begin with),
+// or a notebook's own editable paragraphs (never parsed from a file at all).
 type StoredBookDataRecord =
   | { data: ArrayBuffer; id: string; kind: "raw" }
-  | { content: EpubBook; id: string; kind: "extracted" };
+  | { content: EpubBook; id: string; kind: "extracted" }
+  | { id: string; kind: "notebook"; paragraphs: string[] };
 
 export type UploadedBook = {
   book: BookSource;
@@ -22,6 +24,11 @@ export type UploadedBook = {
 export type SyncedBook = {
   book: BookSource;
   content: EpubBook;
+};
+
+export type NotebookRecord = {
+  book: BookSource;
+  paragraphs: string[];
 };
 
 export async function loadBookCatalog() {
@@ -85,11 +92,20 @@ export async function readBookContent(book: BookSource): Promise<EpubBook> {
     dataRequest.onerror = () => reject(dataRequest.error);
   })
     .finally(() => database.close())
-    .then((record) =>
-      record.kind === "raw"
-        ? loadEpubFromArrayBuffer(record.data.slice(0))
-        : record.content
-    );
+    .then((record) => {
+      if (record.kind === "raw") {
+        return loadEpubFromArrayBuffer(record.data.slice(0));
+      }
+      if (record.kind === "notebook") {
+        return {
+          author: book.author,
+          chapters: [{ id: "content", paragraphs: record.paragraphs }],
+          language: book.language,
+          title: book.title
+        } satisfies EpubBook;
+      }
+      return record.content;
+    });
 }
 
 export async function saveUploadedBook(uploadedBook: UploadedBook) {
@@ -133,6 +149,69 @@ export async function saveSyncedBook(syncedBook: SyncedBook) {
       content: syncedBook.content,
       id: syncedBook.book.storageKey,
       kind: "extracted"
+    } satisfies StoredBookDataRecord);
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    bookRequest.onerror = () => reject(bookRequest.error);
+    dataRequest.onerror = () => reject(dataRequest.error);
+  }).finally(() => database.close());
+}
+
+// Saves a newly-created notebook, or one pulled from the sync server -
+// either way there's no raw file, just editable paragraphs.
+export async function saveNotebook(notebook: NotebookRecord) {
+  const database = await openLibraryDatabase();
+
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(
+      [BOOKS_STORE_NAME, BOOK_DATA_STORE_NAME],
+      "readwrite"
+    );
+    const bookStore = transaction.objectStore(BOOKS_STORE_NAME);
+    const dataStore = transaction.objectStore(BOOK_DATA_STORE_NAME);
+    const bookRequest = bookStore.put(notebook.book);
+    const dataRequest = dataStore.put({
+      id: notebook.book.storageKey,
+      kind: "notebook",
+      paragraphs: notebook.paragraphs
+    } satisfies StoredBookDataRecord);
+
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => reject(transaction.error);
+    bookRequest.onerror = () => reject(bookRequest.error);
+    dataRequest.onerror = () => reject(dataRequest.error);
+  }).finally(() => database.close());
+}
+
+// Updates a notebook's text after an edit or a "send to notebook" append.
+// Only the data row's paragraphs and the catalog row's fingerprint/updatedAt
+// change - fingerprint is recomputed from the new content so pagination-
+// cache.ts's fingerprint-keyed cache naturally invalidates the old pages.
+export async function saveNotebookContent(
+  book: BookSource,
+  paragraphs: string[],
+  fingerprint: string,
+  updatedAt: number
+) {
+  const database = await openLibraryDatabase();
+
+  return new Promise<void>((resolve, reject) => {
+    const transaction = database.transaction(
+      [BOOKS_STORE_NAME, BOOK_DATA_STORE_NAME],
+      "readwrite"
+    );
+    const bookStore = transaction.objectStore(BOOKS_STORE_NAME);
+    const dataStore = transaction.objectStore(BOOK_DATA_STORE_NAME);
+    const bookRequest = bookStore.put({
+      ...book,
+      fingerprint,
+      updatedAt
+    } satisfies BookSource);
+    const dataRequest = dataStore.put({
+      id: book.storageKey,
+      kind: "notebook",
+      paragraphs
     } satisfies StoredBookDataRecord);
 
     transaction.oncomplete = () => resolve();

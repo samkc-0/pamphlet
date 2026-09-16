@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, MouseEvent, PointerEvent } from "react";
-import { RefreshCw, Settings, UserRound } from "lucide-react";
+import type { ChangeEvent, FormEvent, MouseEvent, PointerEvent } from "react";
+import { NotebookPen, RefreshCw, Settings, UserRound } from "lucide-react";
 
 import type { BookSource } from "@/books";
 import { DictionariesScreen } from "@/components/dictionaries-screen";
@@ -24,6 +24,8 @@ import {
   deleteStoredBook,
   loadBookCatalog,
   readBookContent,
+  saveNotebook,
+  saveNotebookContent,
   saveSyncedBook,
   saveUploadedBook
 } from "@/lib/books-db";
@@ -66,6 +68,8 @@ import {
   fetchBookContent,
   fetchCurrentUser,
   fetchNavigationState,
+  fetchNotebookCatalog,
+  fetchNotebookContent,
   fetchSettings,
   getGoogleSignInUrl,
   getSyncApiOrigin,
@@ -75,6 +79,8 @@ import {
   pushBookDeletion,
   pushBookMetadata,
   pushNavigationState,
+  pushNotebook,
+  pushNotebookDeletion,
   pushPinnedSentence,
   pushPinnedWord,
   pushProgress,
@@ -198,6 +204,7 @@ type PersistedAppState = {
   lastDictionaryLanguageCode: string;
   lastSpanishVoiceRegion: SpanishVoiceRegion;
   locallyDeletedContentHashes: string[];
+  locallyDeletedNotebookIds: string[];
   openBookIds: string[];
   readingProgressByBookId: Record<string, ReadingProgressRecord>;
   savedPageByBookId: Record<string, string>;
@@ -288,6 +295,10 @@ function App() {
   const [locallyDeletedContentHashes, setLocallyDeletedContentHashes] =
     useState<string[]>(
       () => defaultPersistedState.locallyDeletedContentHashes
+    );
+  const [locallyDeletedNotebookIds, setLocallyDeletedNotebookIds] =
+    useState<string[]>(
+      () => defaultPersistedState.locallyDeletedNotebookIds
     );
   const [pendingRemoteMarkerByBookId, setPendingRemoteMarkerByBookId] =
     useState<Record<string, ReadingProgressRecord>>({});
@@ -517,7 +528,8 @@ function App() {
       localPinnedSentenceRecords,
       remoteSettings,
       remoteBookMetadata,
-      remoteNavigationState
+      remoteNavigationState,
+      remoteNotebooks
     ] = await Promise.all([
       fetchBookCatalog(token),
       fetchAllProgress(token),
@@ -527,7 +539,8 @@ function App() {
       loadAllPinnedSentenceRecords(),
       fetchSettings(token),
       fetchAllBookMetadata(token),
-      fetchNavigationState(token)
+      fetchNavigationState(token),
+      fetchNotebookCatalog(token)
     ]);
 
     let localCatalog = await refreshBookCatalog();
@@ -591,6 +604,74 @@ function App() {
     const finalCatalog =
       missingBooks.length > 0 ? await refreshBookCatalog() : localCatalog;
     setBooks(finalCatalog);
+
+    // Notebooks are mutable and id-keyed (not immutable/hash-keyed like
+    // books), so this merge compares UpdatedAt rather than just checking
+    // for absence - an existing notebook's content can also be stale.
+    const remotelyDeletedNotebookIds = new Set(
+      remoteNotebooks.filter((notebook) => notebook.deleted).map((notebook) => notebook.id)
+    );
+    const notebooksToRemoveLocally = finalCatalog.filter(
+      (book) => book.kind === "notebook" && remotelyDeletedNotebookIds.has(book.id)
+    );
+    for (const notebook of notebooksToRemoveLocally) {
+      await deleteStoredBook(notebook);
+      setOpenBookIds((current) => current.filter((id) => id !== notebook.id));
+      setLoadedBooks((current) => omitRecordKey(current, notebook.id));
+      setPaginatedBooks((current) => omitRecordKey(current, notebook.id));
+      setBookMetadataEdits((current) => omitRecordKey(current, notebook.id));
+      setSavedPageByBookId((current) => omitRecordKey(current, notebook.id));
+      setActivePageByRowId((current) => omitRecordKey(current, notebook.id));
+    }
+
+    const notebookDeletedIds = new Set(locallyDeletedNotebookIds);
+    const localNotebookById = new Map(
+      finalCatalog
+        .filter((book) => book.kind === "notebook")
+        .map((book) => [book.id, book])
+    );
+    let notebooksChanged = notebooksToRemoveLocally.length > 0;
+
+    for (const summary of remoteNotebooks) {
+      if (summary.deleted) continue;
+      if (notebookDeletedIds.has(summary.id)) continue;
+
+      const local = localNotebookById.get(summary.id);
+      if (local && local.updatedAt >= summary.updatedAt) continue;
+
+      const content = await fetchNotebookContent(token, summary.id);
+      if (!content) continue;
+
+      const paragraphs = notebookTextToParagraphs(content.content);
+      const fingerprint = await computeContentHash({
+        chapters: [{ id: "content", paragraphs }]
+      });
+
+      await saveNotebook({
+        book: {
+          author: local?.author ?? "",
+          createdAt: local?.createdAt ?? content.updatedAt,
+          fileName: `${content.title || "untitled"}.notebook`,
+          fingerprint,
+          id: summary.id,
+          kind: "notebook",
+          language: content.languageCode,
+          size: 0,
+          storageKey: summary.id,
+          title: content.title,
+          updatedAt: content.updatedAt
+        },
+        paragraphs
+      });
+      notebooksChanged = true;
+    }
+
+    const catalogAfterNotebooks = notebooksChanged
+      ? await refreshBookCatalog()
+      : finalCatalog;
+    if (notebooksChanged) {
+      setBooks(catalogAfterNotebooks);
+    }
 
     const bookIdByContentHash = new Map(
       finalCatalog.map((book) => [book.fingerprint, book.id])
@@ -743,7 +824,7 @@ function App() {
         };
       }
     }
-  }, [currentUser, locallyDeletedContentHashes]);
+  }, [currentUser, locallyDeletedContentHashes, locallyDeletedNotebookIds]);
 
   // Guarded exactly like the seed-demo-book effect above, so the initial
   // automatic pull can't race the local catalog/state load on startup.
@@ -880,6 +961,150 @@ function App() {
     }
   }, [currentUser]);
 
+  // A notebook is created empty rather than parsed from a file - everything
+  // past this point (catalog entry, pagination, opening, sync) is identical
+  // to an uploaded book, since it's the same BookSource/EpubBook pipeline.
+  const createNotebook = useCallback(async () => {
+    const title = "Untitled notebook";
+    // paginateChapter produces zero pages for a chapter with no paragraphs
+    // at all, which would leave a brand-new notebook stuck on
+    // BookStatusScreen forever (pages?.length would never become truthy) -
+    // one empty paragraph is enough to always get at least one real page.
+    const paragraphs: string[] = [""];
+    const fingerprint = await computeContentHash({
+      chapters: [{ id: "content", paragraphs }]
+    });
+    const now = Date.now();
+    const id = `notebook-${slugify(title)}-${fingerprint.slice(0, 12)}-${now}`;
+
+    await saveNotebook({
+      book: {
+        author: "",
+        createdAt: now,
+        fileName: `${title}.notebook`,
+        fingerprint,
+        id,
+        kind: "notebook",
+        size: 0,
+        storageKey: id,
+        title,
+        updatedAt: now
+      },
+      paragraphs
+    });
+
+    const token = getStoredSessionToken();
+    if (currentUser && token) {
+      pushNotebook(token, {
+        id,
+        title,
+        content: "",
+        languageCode: "und",
+        fontFamily: "serif",
+        updatedAt: now
+      });
+    }
+
+    setBooks(await refreshBookCatalog());
+    setOpenBookIds((current) => {
+      if (current.includes(id)) return current;
+      if (current.length >= MAX_OPEN_BOOKS) {
+        return [...current.slice(0, MAX_OPEN_BOOKS - 1), id];
+      }
+      return [...current, id];
+    });
+    setActiveRowId(id);
+  }, [currentUser]);
+
+  // Shared by the edit screen's save and "send to notebook": writes new
+  // paragraphs locally, clears the stale cached pagination (paginateOpenBooks
+  // only re-paginates when viewportKey changes, not when content does - so
+  // this is the thing that actually makes an edit show up), and pushes.
+  const applyNotebookContent = useCallback(
+    async (book: BookSource, paragraphs: string[]) => {
+      const safeParagraphs = paragraphs.length > 0 ? paragraphs : [""];
+      const fingerprint = await computeContentHash({
+        chapters: [{ id: "content", paragraphs: safeParagraphs }]
+      });
+      const updatedAt = Date.now();
+
+      await saveNotebookContent(book, safeParagraphs, fingerprint, updatedAt);
+      setBooks(await refreshBookCatalog());
+      setLoadedBooks((current) => ({
+        ...current,
+        [book.id]: {
+          data: {
+            author: book.author,
+            chapters: [{ id: "content", paragraphs: safeParagraphs }],
+            language: book.language,
+            title: book.title
+          },
+          loading: false
+        }
+      }));
+      setPaginatedBooks((current) => omitRecordKey(current, book.id));
+
+      const token = getStoredSessionToken();
+      if (currentUser && token) {
+        const metadataEdit = bookMetadataEdits[book.id];
+        pushNotebook(token, {
+          id: book.id,
+          title: metadataEdit?.title ?? book.title,
+          content: notebookParagraphsToText(safeParagraphs),
+          languageCode: metadataEdit?.languageCode ?? book.language ?? "und",
+          fontFamily: metadataEdit?.fontFamily ?? "serif",
+          updatedAt
+        });
+      }
+    },
+    [bookMetadataEdits, currentUser]
+  );
+
+  const saveNotebookText = useCallback(
+    (bookId: string, text: string) => {
+      const book = books.find((candidate) => candidate.id === bookId);
+      if (!book) return;
+
+      void applyNotebookContent(book, notebookTextToParagraphs(text));
+    },
+    [books, applyNotebookContent]
+  );
+
+  const sendToNotebook = useCallback(
+    (notebookId: string, entry: string) => {
+      const book = books.find((candidate) => candidate.id === notebookId);
+      if (!book) return;
+
+      const existingParagraphs =
+        loadedBooks[notebookId]?.data?.chapters[0]?.paragraphs ?? [];
+      void applyNotebookContent(book, [
+        ...existingParagraphs.filter(Boolean),
+        entry
+      ]);
+    },
+    [books, loadedBooks, applyNotebookContent]
+  );
+
+  // "Send to notebook" targets whichever notebook is currently open; if more
+  // than one is open, the first (an intentional phase-1 simplification -
+  // picking among several open notebooks would need its own picker UI).
+  const openNotebooks = useMemo(
+    () =>
+      openBookIds
+        .map((id) => books.find((book) => book.id === id))
+        .filter(
+          (book): book is BookSource =>
+            Boolean(book) && book?.kind === "notebook"
+        ),
+    [books, openBookIds]
+  );
+  const sendLookupToNotebook = useMemo(() => {
+    const target = openNotebooks[0];
+    if (!target) return undefined;
+
+    return (entry: string) => sendToNotebook(target.id, entry);
+  }, [openNotebooks, sendToNotebook]);
+
   useEffect(() => {
     const onResize = () => setViewportKey(getViewportKey());
 
@@ -910,6 +1135,7 @@ function App() {
       lastDictionaryLanguageCode,
       lastSpanishVoiceRegion,
       locallyDeletedContentHashes,
+      locallyDeletedNotebookIds,
       openBookIds,
       readingProgressByBookId,
       savedPageByBookId,
@@ -969,9 +1195,17 @@ function App() {
         });
       }
 
+      // Notebooks are excluded here: their fingerprint changes on every edit
+      // (it's recomputed from content, purely to invalidate pagination
+      // cache), so it isn't a stable cross-device identity the way a book's
+      // content hash is - syncing it would go stale the moment the notebook
+      // is edited on any device.
       const openContentHashes = openBookIds
-        .map((bookId) => books.find((book) => book.id === bookId)?.fingerprint)
-        .filter((hash): hash is string => Boolean(hash));
+        .map((bookId) => books.find((book) => book.id === bookId))
+        .filter(
+          (book): book is BookSource => Boolean(book) && book?.kind !== "notebook"
+        )
+        .map((book) => book.fingerprint);
       const activeBook = books.find((book) => book.id === activeRowId);
       const navigationState = {
         activeRowId: activeBook ? activeBook.fingerprint : activeRowId,
@@ -1015,6 +1249,7 @@ function App() {
     lastDictionaryLanguageCode,
     lastSpanishVoiceRegion,
     locallyDeletedContentHashes,
+    locallyDeletedNotebookIds,
     openBookIds,
     readingProgressByBookId,
     savedPageByBookId
@@ -1166,7 +1401,7 @@ function App() {
 
       const token = getStoredSessionToken();
       const book = books.find((candidate) => candidate.id === bookId);
-      if (currentUser && token && book) {
+      if (currentUser && token && book && book.kind !== "notebook") {
         pushBookMetadata(token, book.fingerprint, {
           title: metadata.title,
           author: metadata.author,
@@ -1177,8 +1412,25 @@ function App() {
           updatedAt
         });
       }
+
+      // A notebook has no stable content hash to key a BookMetadataOverride
+      // by (its fingerprint changes on every edit), so its title/language/
+      // font sync goes through the Notebook entity itself instead - the
+      // whole row (including current content) is pushed together.
+      if (currentUser && token && book && book.kind === "notebook") {
+        const paragraphs =
+          loadedBooks[bookId]?.data?.chapters[0]?.paragraphs ?? [];
+        pushNotebook(token, {
+          id: bookId,
+          title: metadata.title,
+          content: notebookParagraphsToText(paragraphs),
+          languageCode: metadata.languageCode,
+          fontFamily: metadata.fontFamily,
+          updatedAt
+        });
+      }
     },
-    [books, currentUser]
+    [books, currentUser, loadedBooks]
   );
 
   const deleteBook = useCallback(
@@ -1194,6 +1446,22 @@ function App() {
       setReadingProgressByBookId((current) => omitRecordKey(current, book.id));
       setActivePageByRowId((current) => omitRecordKey(current, book.id));
       setActiveRowId((current) => (current === book.id ? "library" : current));
+
+      const token = getStoredSessionToken();
+
+      // A notebook has no stable content hash to tombstone by (it changes on
+      // every edit), so it's tombstoned and deleted remotely by its own id
+      // instead - see locallyDeletedNotebookIds/pushNotebookDeletion.
+      if (book.kind === "notebook") {
+        setLocallyDeletedNotebookIds((current) =>
+          current.includes(book.id) ? current : [...current, book.id]
+        );
+        if (currentUser && token) {
+          pushNotebookDeletion(token, book.id, Date.now());
+        }
+        return;
+      }
+
       // Recorded immediately so this device's own next catalog pull can't
       // race the server push below and briefly re-download what was just
       // deleted (the real propagation to *other* devices is the server-side
@@ -1205,7 +1473,6 @@ function App() {
           : [...current, book.fingerprint]
       );
 
-      const token = getStoredSessionToken();
       if (currentUser && token) {
         pushBookDeletion(token, book.fingerprint, Date.now());
       }
@@ -1254,6 +1521,9 @@ function App() {
         lastDictionaryLanguageCode,
         lastSpanishVoiceRegion,
         loadedBooks,
+        onCreateNotebook: createNotebook,
+        onSaveNotebookContent: saveNotebookText,
+        onSendToNotebook: sendLookupToNotebook,
         openBookIds,
         activePageByRowId,
         jumpToBookPage,
@@ -1275,6 +1545,7 @@ function App() {
       autoPlayWordAudio,
       books,
       bookMetadataEdits,
+      createNotebook,
       currentUser,
       forceSync,
       isDarkMode,
@@ -1288,6 +1559,8 @@ function App() {
       openBookIds,
       paginatedBooks,
       savedPageByBookId,
+      saveNotebookText,
+      sendLookupToNotebook,
       signIn,
       signOut,
       toggleAnimations,
@@ -1418,6 +1691,9 @@ function createArticleRows({
   lastDictionaryLanguageCode,
   lastSpanishVoiceRegion,
   loadedBooks,
+  onCreateNotebook,
+  onSaveNotebookContent,
+  onSendToNotebook,
   openBookIds,
   openBookSettings,
   paginatedBooks,
@@ -1446,6 +1722,9 @@ function createArticleRows({
   lastDictionaryLanguageCode: string;
   lastSpanishVoiceRegion: SpanishVoiceRegion;
   loadedBooks: Record<string, LoadedBook>;
+  onCreateNotebook: () => void;
+  onSaveNotebookContent: (bookId: string, text: string) => void;
+  onSendToNotebook?: (entry: string) => void;
   openBookIds: string[];
   openBookSettings: (bookId: string) => void;
   paginatedBooks: Record<string, PaginatedBook>;
@@ -1495,6 +1774,7 @@ function createArticleRows({
           id: "upload",
           render: () => (
             <UploadBookScreen
+              onCreateNotebook={onCreateNotebook}
               uploadBooks={uploadBooks}
               uploadError={uploadError}
               uploading={isUploadingBooks}
@@ -1540,7 +1820,9 @@ function createArticleRows({
           autoPlayWordAudio,
           lastSpanishVoiceRegion,
           lastDictionaryLanguageCode,
-          currentUser
+          currentUser,
+          onSaveNotebookContent,
+          onSendToNotebook
         )
       )
   ];
@@ -1557,7 +1839,9 @@ function createBookRow(
   autoPlayWordAudio?: boolean,
   lastSpanishVoiceRegion?: SpanishVoiceRegion,
   lastDictionaryLanguageCode?: string,
-  currentUser?: SyncUser | null
+  currentUser?: SyncUser | null,
+  onSaveNotebookContent?: (bookId: string, text: string) => void,
+  onSendToNotebook?: (entry: string) => void
 ): WorkspaceRow {
   const metadata = getBookMetadata(
     book,
@@ -1568,44 +1852,65 @@ function createBookRow(
   );
 
   if (pages?.length) {
-    return {
-      id: book.id,
-      initialPageId: savedPageId,
-      pages: pages.map((page, index) => ({
-        id: page.id,
-        render: () =>
-          page.isTitlePage ? (
-            <ChapterTitleScreen
-              author={metadata.author}
-              chapterTitle={page.chapterTitle ?? ""}
+    const isNotebook = book.kind === "notebook";
+    const editPage = isNotebook
+      ? {
+          id: `${book.id}-edit`,
+          render: () => (
+            <NotebookEditScreen
               fontFamily={metadata.fontFamily}
+              initialText={notebookParagraphsToText(
+                loadedBook?.data?.chapters[0]?.paragraphs ?? []
+              )}
               languageCode={metadata.languageCode}
-              title={metadata.title}
-            />
-          ) : (
-            <ReaderScreen
-              author={metadata.author}
-              autoPlayWordAudio={Boolean(autoPlayWordAudio)}
-              currentUser={currentUser ?? null}
-              dictionaryLanguageCode={metadata.dictionaryLanguageCode}
-              fontFamily={metadata.fontFamily}
-              isSyncingState={Boolean(isSyncingState)}
-              languageCode={metadata.languageCode}
-              spanishVoiceRegion={metadata.spanishVoiceRegion}
-              pageNumber={index + 1}
-              pageTotal={pages.length}
-              onPageChange={(pageNumber) => {
-                const nextPage = pages[pageNumber - 1];
-
-                if (nextPage) {
-                  jumpToBookPage?.(book.id, nextPage.id);
-                }
-              }}
-              paragraphs={page.paragraphs}
+              onSave={(text) => onSaveNotebookContent?.(book.id, text)}
               title={metadata.title}
             />
           )
-      }))
+        }
+      : null;
+    const pageCountOffset = editPage ? 1 : 0;
+    const contentPages = pages.map((page, index) => ({
+      id: page.id,
+      render: () =>
+        page.isTitlePage ? (
+          <ChapterTitleScreen
+            author={metadata.author}
+            chapterTitle={page.chapterTitle ?? ""}
+            fontFamily={metadata.fontFamily}
+            languageCode={metadata.languageCode}
+            title={metadata.title}
+          />
+        ) : (
+          <ReaderScreen
+            author={metadata.author}
+            autoPlayWordAudio={Boolean(autoPlayWordAudio)}
+            currentUser={currentUser ?? null}
+            dictionaryLanguageCode={metadata.dictionaryLanguageCode}
+            fontFamily={metadata.fontFamily}
+            isSyncingState={Boolean(isSyncingState)}
+            languageCode={metadata.languageCode}
+            spanishVoiceRegion={metadata.spanishVoiceRegion}
+            onSendToNotebook={onSendToNotebook}
+            pageNumber={index + 1 + pageCountOffset}
+            pageTotal={pages.length + pageCountOffset}
+            onPageChange={(pageNumber) => {
+              const nextPage = pages[pageNumber - 1 - pageCountOffset];
+
+              if (nextPage) {
+                jumpToBookPage?.(book.id, nextPage.id);
+              }
+            }}
+            paragraphs={page.paragraphs}
+            title={metadata.title}
+          />
+        )
+    }));
+
+    return {
+      id: book.id,
+      initialPageId: savedPageId,
+      pages: editPage ? [editPage, ...contentPages] : contentPages
     };
   }
 
@@ -2253,10 +2558,12 @@ function SpanishRegionReel({
 }
 
 function UploadBookScreen({
+  onCreateNotebook,
   uploadBooks,
   uploadError,
   uploading
 }: {
+  onCreateNotebook: () => void;
   uploadBooks: (files: File[]) => Promise<void>;
   uploadError: string | null;
   uploading: boolean;
@@ -2284,6 +2591,13 @@ function UploadBookScreen({
             {uploadError}
           </p>
         ) : null}
+        <button
+          className="mt-6 block w-full text-lg text-neutral-500 outline-none focus-visible:text-neutral-950 dark:text-neutral-400 dark:focus-visible:text-neutral-100"
+          onClick={onCreateNotebook}
+          type="button"
+        >
+          New notebook
+        </button>
       </div>
     </div>
   );
@@ -2445,6 +2759,12 @@ function LibraryScreen({
                     onPointerLeave={clearLongPress}
                     onPointerUp={clearLongPress}
                   >
+                    {book.kind === "notebook" ? (
+                      <NotebookPen
+                        aria-hidden="true"
+                        className="mr-1.5 inline-block h-4 w-4 -translate-y-0.5 text-neutral-500 dark:text-neutral-400"
+                      />
+                    ) : null}
                     {metadata.title}
                     <span
                       aria-hidden={!isOpen}
@@ -2486,6 +2806,7 @@ function ReaderScreen({
   isSyncingState,
   languageCode,
   onPageChange,
+  onSendToNotebook,
   paragraphs,
   pageNumber,
   pageTotal,
@@ -2500,6 +2821,7 @@ function ReaderScreen({
   isSyncingState: boolean;
   languageCode: string;
   onPageChange: (pageNumber: number) => void;
+  onSendToNotebook?: (entry: string) => void;
   pageNumber: number;
   pageTotal: number;
   paragraphs: string[];
@@ -2856,6 +3178,16 @@ function ReaderScreen({
     }
   };
 
+  const handleSendWordToNotebook = () => {
+    if (!lookup) return;
+    onSendToNotebook?.(formatWordNotebookEntry(lookup));
+  };
+
+  const handleSendSentenceToNotebook = () => {
+    if (!sentenceLookup) return;
+    onSendToNotebook?.(formatSentenceNotebookEntry(sentenceLookup));
+  };
+
   const commitPageDraft = () => {
     const parsedPage = Number.parseInt(pageDraft, 10);
     const nextPage = clampNumber(
@@ -3008,6 +3340,9 @@ function ReaderScreen({
             setLookup(null);
             setWordLookupHighlight(null);
           }}
+          onSendToNotebook={
+            onSendToNotebook ? handleSendWordToNotebook : undefined
+          }
           onTogglePin={handleTogglePin}
         />
       ) : null}
@@ -3016,6 +3351,9 @@ function ReaderScreen({
         <SentenceLookupPopup
           lookup={sentenceLookup}
           onDismiss={handleSentenceDismiss}
+          onSendToNotebook={
+            onSendToNotebook ? handleSendSentenceToNotebook : undefined
+          }
           onTogglePin={handleSentenceTogglePin}
         />
       ) : null}
@@ -3072,6 +3410,82 @@ function ChapterTitleScreen({
   );
 }
 
+// The one page (always first) that makes a notebook "just an editable book":
+// a plain autosaving textarea. Every other page in a notebook's row is a
+// normal ReaderScreen over the saved text, unmodified. Autosaves on a
+// debounce (rather than requiring an explicit Save) since swiping away is
+// how you navigate this app - there's no natural "leave the screen" action
+// to hang a save off of.
+function NotebookEditScreen({
+  fontFamily,
+  initialText,
+  languageCode,
+  onSave,
+  title
+}: {
+  fontFamily: FontFamily;
+  initialText: string;
+  languageCode: string;
+  onSave: (text: string) => void;
+  title: string;
+}) {
+  const [text, setText] = useState(initialText);
+  const latestText = useRef(initialText);
+  const lastSavedText = useRef(initialText);
+  const saveTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimer.current) {
+        window.clearTimeout(saveTimer.current);
+      }
+      if (latestText.current !== lastSavedText.current) {
+        onSave(latestText.current);
+      }
+    };
+    // Deliberately mount-only: the cleanup reads latestText/lastSavedText
+    // via refs so it always sees current values regardless of when the
+    // component unmounts, without needing onSave/initialText in the deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    const value = event.currentTarget.value;
+    setText(value);
+    latestText.current = value;
+
+    if (saveTimer.current) {
+      window.clearTimeout(saveTimer.current);
+    }
+    saveTimer.current = window.setTimeout(() => {
+      lastSavedText.current = value;
+      onSave(value);
+      saveTimer.current = null;
+    }, 800);
+  };
+
+  return (
+    <div
+      className={`flex h-full w-full flex-col px-5 py-8 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-12 ${
+        fontFamily === "sans" ? "sans-serif-font" : ""
+      }`}
+      lang={languageCode}
+    >
+      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
+        <h1 className="mb-4 text-center font-['Cormorant_Unicase'] text-3xl font-bold leading-tight sm:text-4xl">
+          {title}
+        </h1>
+        <textarea
+          className="flex-1 resize-none bg-transparent text-lg leading-relaxed outline-none placeholder:text-neutral-400 dark:placeholder:text-neutral-600"
+          onChange={handleChange}
+          placeholder="Write here…"
+          value={text}
+        />
+      </div>
+    </div>
+  );
+}
+
 function BookStatusScreen({
   error,
   languageCode,
@@ -3120,6 +3534,7 @@ function getDefaultPersistedAppState(): PersistedAppState {
     lastDictionaryLanguageCode: "en",
     lastSpanishVoiceRegion: "es",
     locallyDeletedContentHashes: [],
+    locallyDeletedNotebookIds: [],
     openBookIds: [],
     readingProgressByBookId: {},
     savedPageByBookId: {},
@@ -3159,6 +3574,34 @@ async function seedDemoBook() {
     },
     data
   });
+}
+
+// Notebook text round-trips through a plain string on the wire (and in the
+// edit screen's textarea) but as EpubSection.paragraphs locally - the same
+// blank-line convention epub parsing already uses.
+function notebookTextToParagraphs(text: string): string[] {
+  return text
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+}
+
+function notebookParagraphsToText(paragraphs: string[]): string {
+  return paragraphs.join("\n\n");
+}
+
+function formatWordNotebookEntry(lookup: WordLookupState): string {
+  const definitions = (lookup.result?.senses ?? [])
+    .flatMap((sense) => sense.definitions)
+    .filter(Boolean);
+
+  return definitions.length > 0
+    ? `${lookup.displayWord} — ${definitions.join("; ")}`
+    : lookup.displayWord;
+}
+
+function formatSentenceNotebookEntry(lookup: SentenceLookupState): string {
+  return lookup.result ? `${lookup.sentence} — ${lookup.result}` : lookup.sentence;
 }
 
 function slugify(input: string) {
@@ -3214,6 +3657,9 @@ function normalizePersistedAppState(
   const locallyDeletedContentHashes = getPersistedContentHashes(
     state.locallyDeletedContentHashes
   );
+  const locallyDeletedNotebookIds = getPersistedContentHashes(
+    state.locallyDeletedNotebookIds
+  );
   const openBookIds = getPersistedOpenBookIds(state.openBookIds);
   const bookMetadataEdits = getPersistedBookMetadataEdits(
     state.bookMetadataEdits
@@ -3256,6 +3702,7 @@ function normalizePersistedAppState(
       ? state.lastSpanishVoiceRegion
       : defaultState.lastSpanishVoiceRegion,
     locallyDeletedContentHashes,
+    locallyDeletedNotebookIds,
     openBookIds,
     readingProgressByBookId,
     savedPageByBookId,

@@ -72,6 +72,24 @@ export type SyncedBookMetadata = {
   updatedAt: number;
 };
 
+export type SyncedNotebookSummary = {
+  id: string;
+  title: string;
+  languageCode: string;
+  fontFamily: string;
+  deleted: boolean;
+  updatedAt: number;
+};
+
+export type SyncedNotebookContent = {
+  id: string;
+  title: string;
+  content: string;
+  languageCode: string;
+  fontFamily: string;
+  updatedAt: number;
+};
+
 // The backend's models encode Go time.Time as RFC3339 strings; local state
 // keeps timestamps as epoch milliseconds (compact, easy to compare). These
 // two helpers are the only place that conversion happens.
@@ -516,4 +534,88 @@ export async function fetchNavigationState(
   };
 
   return { ...record, updatedAt: fromWireTimestamp(record.updatedAt) };
+}
+
+export async function pushNotebook(
+  token: string,
+  notebook: {
+    id: string;
+    title: string;
+    content: string;
+    languageCode: string;
+    fontFamily: string;
+    updatedAt: number;
+  }
+) {
+  await authorizedFetch("/notebooks", token, {
+    method: "POST",
+    body: JSON.stringify({
+      id: notebook.id,
+      title: notebook.title,
+      content: notebook.content,
+      languageCode: notebook.languageCode,
+      fontFamily: notebook.fontFamily,
+      updatedAt: toWireTimestamp(notebook.updatedAt)
+    })
+  }).catch((error: unknown) => {
+    console.error("Failed to sync notebook to server.", error);
+  });
+}
+
+/** Lists the signed-in user's synced notebooks without their content, for diffing against the local catalog. */
+export async function fetchNotebookCatalog(
+  token: string
+): Promise<SyncedNotebookSummary[]> {
+  const response = await authorizedFetch("/notebooks", token);
+  if (!response.ok) return [];
+
+  const records = (await response.json()) as Array<{
+    id: string;
+    title: string;
+    languageCode: string;
+    fontFamily: string;
+    deleted: boolean;
+    updatedAt: string;
+  }>;
+
+  return records.map((record) => ({
+    id: record.id,
+    title: record.title,
+    languageCode: record.languageCode,
+    fontFamily: record.fontFamily,
+    deleted: record.deleted,
+    updatedAt: fromWireTimestamp(record.updatedAt)
+  }));
+}
+
+export async function fetchNotebookContent(
+  token: string,
+  id: string
+): Promise<SyncedNotebookContent | null> {
+  const response = await authorizedFetch(`/notebooks/${encodeURIComponent(id)}`, token);
+  if (!response.ok) return null;
+
+  const record = (await response.json()) as {
+    id: string;
+    title: string;
+    content: string;
+    languageCode: string;
+    fontFamily: string;
+    updatedAt: string;
+  };
+
+  return { ...record, updatedAt: fromWireTimestamp(record.updatedAt) };
+}
+
+export async function pushNotebookDeletion(
+  token: string,
+  id: string,
+  updatedAt: number
+) {
+  await authorizedFetch(`/notebooks/${encodeURIComponent(id)}/delete`, token, {
+    method: "POST",
+    body: JSON.stringify({ updatedAt: toWireTimestamp(updatedAt) })
+  }).catch((error: unknown) => {
+    console.error("Failed to sync notebook deletion to server.", error);
+  });
 }

@@ -79,12 +79,12 @@ gesture-detect-then-animate implementation.
 
 ## Cross-device sync
 
-Signed-in users sync book content, reading progress, and pinned words via
-`pamphlet-sync` (`src/lib/sync-client.ts`, plus the push/pull effects in
-`App.tsx`). **Whenever you add or change state that should follow the user
-across devices, it needs both halves**: a backend model + endpoint pair in
-`pamphlet-sync` (see the matching note in its AGENTS.md) *and* the frontend
-wiring here, following the pattern already established:
+Signed-in users sync book content, reading progress, pinned words, and
+notebooks via `pamphlet-sync` (`src/lib/sync-client.ts`, plus the push/pull
+effects in `App.tsx`). **Whenever you add or change state that should follow
+the user across devices, it needs both halves**: a backend model + endpoint
+pair in `pamphlet-sync` (see the matching note in its AGENTS.md) *and* the
+frontend wiring here, following the pattern already established:
 
 - Push on local change, fire-and-forget (`.catch()`, never `await` in a way
   that blocks the UI) — sync must never break or slow down local-only/
@@ -95,7 +95,14 @@ wiring here, following the pattern already established:
 - Last-write-wins by a client-supplied timestamp, same as the backend.
 - A book reference in synced state must be its content hash
   (`BookSource.fingerprint`), not the local `id` — the hash is what's
-  portable across devices; the local id embeds a device-local slug.
+  portable across devices; the local id embeds a device-local slug. A
+  notebook (`BookSource.kind === "notebook"`) is the one exception: its
+  content is mutable, so its fingerprint churns on every edit purely to
+  invalidate `pagination-cache.ts` — it's synced by its stable local `id`
+  instead (see `Notebook` in `pamphlet-sync`), and is deliberately excluded
+  from anything keyed by content hash (`BookMetadataOverride`,
+  `NavigationState.openContentHashes`) since it would go stale the moment
+  it's edited.
 - A `ReaderPage.id` is viewport-dependent and meaningless on another
   device's screen size — never sync one directly. Express a position as
   `{chapterId, paragraphIndex}` (see `pagination.ts`'s
