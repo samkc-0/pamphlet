@@ -36,6 +36,7 @@ import {
   appendNotebookEntry,
   createEmptyNotebookDoc,
   createNotebookBox,
+  clampBoxX,
   moveNotebookBox,
   notebookDocToParagraphs,
   parseNotebookContent,
@@ -3247,6 +3248,7 @@ function NotebookPageScreen({
   const canvasRef = useRef<HTMLDivElement>(null);
   const tapStart = useRef<{ x: number; y: number } | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
+  const dragBounds = useRef({ maxY: 1, width: 0 });
   const boxTexts = useMemo(() => page.boxes.map((box) => box.text), [page.boxes]);
   const { popups, renderBlock } = useTextLookup({
     autoPlayWordAudio,
@@ -3288,6 +3290,36 @@ function NotebookPageScreen({
     if (boxId) setFocusedBoxId(boxId);
   };
 
+  // Escape steps out, one level at a time: out of the box being typed in,
+  // then out of write mode altogether. Without it a desktop user is stuck -
+  // arrow keys go to the text cursor rather than turning the page, and
+  // clicking off the box just starts another one.
+  useEffect(() => {
+    if (mode !== "write") return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+
+      const active = document.activeElement;
+
+      if (
+        active instanceof HTMLTextAreaElement &&
+        canvasRef.current?.contains(active)
+      ) {
+        active.blur();
+        setFocusedBoxId(null);
+        event.preventDefault();
+        return;
+      }
+
+      onToggleMode();
+      event.preventDefault();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mode, onToggleMode]);
+
   // Moving a box is deliberately confined to its handle: a drag anywhere
   // else on the page is how you turn the page, so the handle stops the
   // gesture from reaching SwipeWorkspace at all rather than trying to tell
@@ -3303,9 +3335,18 @@ function NotebookPageScreen({
     event.currentTarget.setPointerCapture(event.pointerId);
 
     const rect = canvasRef.current.getBoundingClientRect();
+    const boxHeight =
+      event.currentTarget.parentElement?.getBoundingClientRect().height ?? 0;
+
     dragOffset.current = {
       x: event.clientX - (rect.left + box.x * rect.width),
       y: event.clientY - (rect.top + box.y * rect.height)
+    };
+    // How tall the box has grown decides how far down it can go, so the
+    // whole box stays on the page rather than just its top-left corner.
+    dragBounds.current = {
+      maxY: Math.max(0, 1 - boxHeight / rect.height),
+      width: box.width
     };
     setDrag({ boxId: box.id, x: box.x, y: box.y });
   };
@@ -3316,10 +3357,15 @@ function NotebookPageScreen({
     event.stopPropagation();
 
     const rect = canvasRef.current.getBoundingClientRect();
+    const y = (event.clientY - dragOffset.current.y - rect.top) / rect.height;
+
     setDrag({
       boxId: drag.boxId,
-      x: (event.clientX - dragOffset.current.x - rect.left) / rect.width,
-      y: (event.clientY - dragOffset.current.y - rect.top) / rect.height
+      x: clampBoxX(
+        (event.clientX - dragOffset.current.x - rect.left) / rect.width,
+        dragBounds.current.width
+      ),
+      y: Math.min(Math.max(y, 0), dragBounds.current.maxY)
     });
   };
 
@@ -3388,10 +3434,10 @@ function NotebookPageScreen({
                 }}
               >
                 {mode === "write" ? (
-                  <>
+                  <div className="group relative rounded border border-transparent hover:border-neutral-200 dark:hover:border-neutral-700">
                     <button
                       aria-label="Move this box"
-                      className="absolute right-0 top-0 z-10 cursor-grab touch-none text-neutral-300 dark:text-neutral-600"
+                      className="absolute left-0 top-0 z-10 cursor-grab touch-none text-neutral-300 dark:text-neutral-600"
                       onPointerCancel={handleDragEnd}
                       onPointerDown={(event) => handleDragStart(event, box)}
                       onPointerMove={handleDragMove}
@@ -3405,7 +3451,7 @@ function NotebookPageScreen({
                       onSave={(text) => onSaveBoxText(box.id, text)}
                       shouldFocus={box.id === focusedBoxId}
                     />
-                  </>
+                  </div>
                 ) : (
                   <p className="whitespace-pre-wrap text-base leading-relaxed">
                     {renderBlock(blockIndex)}
@@ -3496,7 +3542,7 @@ function NotebookBoxEditor({
 
   return (
     <textarea
-      className="w-full resize-none overflow-hidden bg-transparent pr-5 text-base leading-relaxed outline-none placeholder:text-neutral-300 dark:placeholder:text-neutral-600"
+      className="w-full resize-none overflow-hidden bg-transparent pl-5 text-base leading-relaxed outline-none placeholder:text-neutral-300 dark:placeholder:text-neutral-600"
       onChange={handleChange}
       placeholder="…"
       ref={textareaRef}

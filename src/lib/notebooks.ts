@@ -179,6 +179,13 @@ export function appendNotebookEntry(
   };
 }
 
+// Keeps a box's left edge on the page. The vertical limit depends on how
+// tall the box has grown, which only the rendered page knows, so the drag
+// works that out and this just guards the range.
+export function clampBoxX(x: number, width: number) {
+  return clamp(x, 0, 1 - width);
+}
+
 export function moveNotebookBox(
   doc: NotebookDoc,
   pageId: string,
@@ -195,8 +202,8 @@ export function moveNotebookBox(
               box.id === boxId
                 ? {
                     ...box,
-                    x: clamp(x, 0, 1 - box.width),
-                    y: clamp(y, 0, MAX_BOX_Y)
+                    x: clampBoxX(x, box.width),
+                    y: clamp(y, 0, 1)
                   }
                 : box
             )
