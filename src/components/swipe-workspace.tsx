@@ -50,6 +50,10 @@ type SwipeWorkspaceProps = {
     rowId: string;
     serial: number;
   } | null;
+  rowJump?: {
+    rowId: string;
+    serial: number;
+  } | null;
   rows: WorkspaceRow[];
   swipe?: boolean;
 };
@@ -61,6 +65,7 @@ export function SwipeWorkspace({
   keyboard = true,
   onStateChange,
   pageJump,
+  rowJump,
   rows,
   swipe = true
 }: SwipeWorkspaceProps) {
@@ -73,6 +78,7 @@ export function SwipeWorkspace({
   const [transition, setTransition] = useState<ScreenTransition | null>(null);
   const pointerStart = useRef<Point | null>(null);
   const processedPageJumpSerial = useRef<number | null>(null);
+  const processedRowJumpSerial = useRef<number | null>(null);
   const suppressClick = useRef(false);
   const transitionTimer = useRef<number | null>(null);
 
@@ -140,6 +146,20 @@ export function SwipeWorkspace({
           }
     );
   }, [pageJump, rows]);
+
+  // initialRowId only seeds the first render, so moving to another row from
+  // outside (creating a notebook, say) needs its own signal - the same
+  // serial-guarded shape as pageJump. An unknown row isn't marked as
+  // processed, so a jump issued before its row exists still lands once the
+  // row shows up.
+  useEffect(() => {
+    if (!rowJump) return;
+    if (processedRowJumpSerial.current === rowJump.serial) return;
+    if (!rows.some((row) => row.id === rowJump.rowId)) return;
+
+    processedRowJumpSerial.current = rowJump.serial;
+    setActiveRowId(rowJump.rowId);
+  }, [rowJump, rows]);
 
   const startTransition = useCallback(
     (to: ReactNode, direction: Direction, commit: () => void) => {

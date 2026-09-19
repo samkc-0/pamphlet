@@ -12,17 +12,10 @@ import {
 import type { BookSource } from "@/books";
 import { DictionariesScreen } from "@/components/dictionaries-screen";
 import {
-  SentenceLookupPopup,
-  type SentenceLookupState
-} from "@/components/sentence-lookup-popup";
-import {
   SwipeWorkspace,
   type WorkspaceRow
 } from "@/components/swipe-workspace";
-import {
-  WordLookupPopup,
-  type WordLookupState
-} from "@/components/word-lookup-popup";
+import { useTextLookup } from "@/components/text-lookup";
 import {
   readStoredAppState,
   writeStoredAppState
@@ -31,12 +24,28 @@ import {
   deleteStoredBook,
   loadBookCatalog,
   readBookContent,
+  readNotebookDoc,
   saveNotebook,
   saveNotebookContent,
   saveSyncedBook,
   saveUploadedBook
 } from "@/lib/books-db";
-import { lookupWord, translateText } from "@/lib/dictionary";
+import {
+  addNotebookBox,
+  appendNotebookEntry,
+  createEmptyNotebookDoc,
+  createNotebookBox,
+  notebookDocToParagraphs,
+  parseNotebookContent,
+  serializeNotebookDoc,
+  trimTrailingBlankPages,
+  updateNotebookBox,
+  withoutEmptyBoxes,
+  withTrailingBlankPage,
+  type NotebookBox,
+  type NotebookDoc,
+  type NotebookPage
+} from "@/lib/notebooks";
 import {
   computeContentHash,
   loadEpubFromArrayBuffer,
@@ -53,15 +62,12 @@ import {
 } from "@/lib/pagination";
 import {
   loadAllPinnedSentenceRecords,
-  loadPinnedSentences,
   setSentencePinned
 } from "@/lib/pinned-sentences";
 import {
   loadAllPinnedWordRecords,
-  loadPinnedWords,
   setWordPinned
 } from "@/lib/pinned-words";
-import { speakWord } from "@/lib/speech";
 import {
   AUTH_POPUP_MESSAGE_TYPE,
   clearStoredSessionToken,
@@ -88,17 +94,11 @@ import {
   pushNavigationState,
   pushNotebook,
   pushNotebookDeletion,
-  pushPinnedSentence,
-  pushPinnedWord,
   pushProgress,
   pushSettings,
   setStoredSessionToken,
   type SyncUser
 } from "@/lib/sync-client";
-import {
-  normalizeWord,
-  tokenizeParagraphWithOffsets
-} from "@/lib/tokenize";
 
 const ROW_MARKERS = [
   "⓪",
@@ -314,6 +314,11 @@ function App() {
   );
   const [pageJump, setPageJump] = useState<PageJump | null>(null);
   const pageJumpSerial = useRef(0);
+  const [rowJump, setRowJump] = useState<{
+    rowId: string;
+    serial: number;
+  } | null>(null);
+  const rowJumpSerial = useRef(0);
   const syncIndicatorTimer = useRef<number | null>(null);
   const lastPushedProgressByBookId = useRef<Record<string, number>>({});
   // Tracks the last settings values this device pushed or pulled, so the
@@ -649,9 +654,11 @@ function App() {
       const content = await fetchNotebookContent(token, summary.id);
       if (!content) continue;
 
-      const paragraphs = notebookTextToParagraphs(content.content);
+      // Accepts both the JSON document notebooks sync as now and the plain
+      // text they synced as before they had boxes.
+      const doc = parseNotebookContent(content.content);
       const fingerprint = await computeContentHash({
-        chapters: [{ id: "content", paragraphs }]
+        chapters: [{ id: "content", paragraphs: notebookDocToParagraphs(doc) }]
       });
 
       await saveNotebook({
@@ -668,8 +675,9 @@ function App() {
           title: content.title,
           updatedAt: content.updatedAt
         },
-        paragraphs
+        doc
       });
+      setNotebookDoc(summary.id, doc);
       notebooksChanged = true;
     }
 
@@ -968,18 +976,55 @@ function App() {
     }
   }, [currentUser]);
 
+  const [notebookDocsById, setNotebookDocsById] = useState<
+    Record<string, NotebookDoc>
+  >({});
+  // Mirrors the state so a write always builds on the newest document.
+  // Box edits save on a debounce, so the callback that eventually fires was
+  // created a render or more ago - reading the doc out of that stale
+  // closure would silently drop any box added in between.
+  const notebookDocsRef = useRef<Record<string, NotebookDoc>>({});
+
+  const setNotebookDoc = useCallback((bookId: string, doc: NotebookDoc) => {
+    notebookDocsRef.current = { ...notebookDocsRef.current, [bookId]: doc };
+    setNotebookDocsById(notebookDocsRef.current);
+  }, []);
+  const [notebookModeByBookId, setNotebookModeByBookId] = useState<
+    Record<string, "write" | "lookup">
+  >({});
+
+  // A notebook's pages are authored rather than measured, so they're read
+  // as a structured document - boxes and their positions - instead of the
+  // flattened text loadedBooks holds for metadata and language detection.
+  useEffect(() => {
+    for (const book of books) {
+      if (book.kind !== "notebook") continue;
+      if (!openBookIds.includes(book.id)) continue;
+      if (notebookDocsById[book.id]) continue;
+
+      readNotebookDoc(book)
+        .then((doc) => {
+          if (!notebookDocsRef.current[book.id]) setNotebookDoc(book.id, doc);
+        })
+        .catch(() => {});
+    }
+  }, [books, notebookDocsById, openBookIds, setNotebookDoc]);
+
+  const toggleNotebookMode = useCallback((bookId: string) => {
+    setNotebookModeByBookId((current) => ({
+      ...current,
+      [bookId]: (current[bookId] ?? "write") === "write" ? "lookup" : "write"
+    }));
+  }, []);
+
   // A notebook is created empty rather than parsed from a file - everything
-  // past this point (catalog entry, pagination, opening, sync) is identical
-  // to an uploaded book, since it's the same BookSource/EpubBook pipeline.
+  // past this point (catalog entry, opening, sync) is identical to an
+  // uploaded book, since it's the same BookSource pipeline.
   const createNotebook = useCallback(async () => {
     const title = "Untitled notebook";
-    // paginateChapter produces zero pages for a chapter with no paragraphs
-    // at all, which would leave a brand-new notebook stuck on
-    // BookStatusScreen forever (pages?.length would never become truthy) -
-    // one empty paragraph is enough to always get at least one real page.
-    const paragraphs: string[] = [""];
+    const doc = createEmptyNotebookDoc();
     const fingerprint = await computeContentHash({
-      chapters: [{ id: "content", paragraphs }]
+      chapters: [{ id: "content", paragraphs: notebookDocToParagraphs(doc) }]
     });
     const now = Date.now();
     const id = `notebook-${slugify(title)}-${fingerprint.slice(0, 12)}-${now}`;
@@ -997,7 +1042,7 @@ function App() {
         title,
         updatedAt: now
       },
-      paragraphs
+      doc
     });
 
     const token = getStoredSessionToken();
@@ -1005,14 +1050,17 @@ function App() {
       pushNotebook(token, {
         id,
         title,
-        content: "",
+        content: serializeNotebookDoc(doc),
         languageCode: "und",
         fontFamily: "serif",
         updatedAt: now
       });
     }
 
+    setNotebookDoc(id, doc);
     setBooks(await refreshBookCatalog());
+    rowJumpSerial.current += 1;
+    setRowJump({ rowId: id, serial: rowJumpSerial.current });
     setOpenBookIds((current) => {
       if (current.includes(id)) return current;
       if (current.length >= MAX_OPEN_BOOKS) {
@@ -1021,35 +1069,39 @@ function App() {
       return [...current, id];
     });
     setActiveRowId(id);
-  }, [currentUser]);
+  }, [currentUser, setNotebookDoc]);
 
-  // Shared by the edit screen's save and "send to notebook": writes new
-  // paragraphs locally, clears the stale cached pagination (paginateOpenBooks
-  // only re-paginates when viewportKey changes, not when content does - so
-  // this is the thing that actually makes an edit show up), and pushes.
-  const applyNotebookContent = useCallback(
-    async (book: BookSource, paragraphs: string[]) => {
-      const safeParagraphs = paragraphs.length > 0 ? paragraphs : [""];
+  // The single write path for a notebook's pages, shared by editing a box
+  // and by "send to notebook". What's kept on screen is the document as
+  // given, but what's persisted is trimmed: a box the user tapped out and
+  // never typed into, and the blank page always shown at the end, would
+  // otherwise accumulate. Trimming only on the way out means a box being
+  // typed into never disappears from under the cursor.
+  const applyNotebookDoc = useCallback(
+    async (book: BookSource, doc: NotebookDoc) => {
+      setNotebookDoc(book.id, doc);
+
+      const saved = trimTrailingBlankPages(withoutEmptyBoxes(doc));
+      const paragraphs = notebookDocToParagraphs(saved);
       const fingerprint = await computeContentHash({
-        chapters: [{ id: "content", paragraphs: safeParagraphs }]
+        chapters: [{ id: "content", paragraphs }]
       });
       const updatedAt = Date.now();
 
-      await saveNotebookContent(book, safeParagraphs, fingerprint, updatedAt);
+      await saveNotebookContent(book, saved, fingerprint, updatedAt);
       setBooks(await refreshBookCatalog());
       setLoadedBooks((current) => ({
         ...current,
         [book.id]: {
           data: {
             author: book.author,
-            chapters: [{ id: "content", paragraphs: safeParagraphs }],
+            chapters: [{ id: "content", paragraphs }],
             language: book.language,
             title: book.title
           },
           loading: false
         }
       }));
-      setPaginatedBooks((current) => omitRecordKey(current, book.id));
 
       const token = getStoredSessionToken();
       if (currentUser && token) {
@@ -1057,65 +1109,53 @@ function App() {
         pushNotebook(token, {
           id: book.id,
           title: metadataEdit?.title ?? book.title,
-          content: notebookParagraphsToText(safeParagraphs),
+          content: serializeNotebookDoc(saved),
           languageCode: metadataEdit?.languageCode ?? book.language ?? "und",
           fontFamily: metadataEdit?.fontFamily ?? "serif",
           updatedAt
         });
       }
     },
-    [bookMetadataEdits, currentUser]
+    [bookMetadataEdits, currentUser, setNotebookDoc]
   );
 
-  // Reconstructs the notebook's full paragraph list by flattening every
-  // page's current paragraphs in order and substituting just the edited
-  // page's slice, then re-paginates the whole thing from scratch via
-  // applyNotebookContent - this is what actually moves overflow onto the
-  // next page (or pulls it back) after an edit, since pages themselves are
-  // never edited in place, only the underlying text is.
-  const saveNotebookPageText = useCallback(
-    (bookId: string, pageIndex: number, text: string) => {
+  // Placing a box and typing in one are the same write, differing only in
+  // how the next document is derived from the current one.
+  const withNotebook = useCallback(
+    (bookId: string, next: (doc: NotebookDoc) => NotebookDoc) => {
       const book = books.find((candidate) => candidate.id === bookId);
       if (!book) return;
 
-      const pages = paginatedBooks[bookId]?.pages ?? [];
-      const paragraphs = pages.length
-        ? pages.flatMap((page, index) =>
-            index === pageIndex
-              ? notebookTextToParagraphs(text)
-              : page.paragraphs
-          )
-        : notebookTextToParagraphs(text);
-
-      void applyNotebookContent(book, paragraphs);
+      const doc = notebookDocsRef.current[bookId] ?? createEmptyNotebookDoc();
+      void applyNotebookDoc(book, next(doc));
     },
-    [books, paginatedBooks, applyNotebookContent]
+    [books, applyNotebookDoc]
   );
 
-  const [notebookModeByBookId, setNotebookModeByBookId] = useState<
-    Record<string, "write" | "lookup">
-  >({});
+  const addNotebookBoxAt = useCallback(
+    (bookId: string, pageId: string, x: number, y: number) => {
+      const box = createNotebookBox(x, y);
+      const doc = notebookDocsRef.current[bookId] ?? createEmptyNotebookDoc();
+      setNotebookDoc(bookId, addNotebookBox(doc, pageId, box));
+      return box.id;
+    },
+    [setNotebookDoc]
+  );
 
-  const toggleNotebookMode = useCallback((bookId: string) => {
-    setNotebookModeByBookId((current) => ({
-      ...current,
-      [bookId]: (current[bookId] ?? "write") === "write" ? "lookup" : "write"
-    }));
-  }, []);
+  const saveNotebookBoxText = useCallback(
+    (bookId: string, pageId: string, boxId: string, text: string) => {
+      withNotebook(bookId, (doc) =>
+        updateNotebookBox(doc, pageId, boxId, text)
+      );
+    },
+    [withNotebook]
+  );
 
   const sendToNotebook = useCallback(
     (notebookId: string, entry: string) => {
-      const book = books.find((candidate) => candidate.id === notebookId);
-      if (!book) return;
-
-      const existingParagraphs =
-        loadedBooks[notebookId]?.data?.chapters[0]?.paragraphs ?? [];
-      void applyNotebookContent(book, [
-        ...existingParagraphs.filter(Boolean),
-        entry
-      ]);
+      withNotebook(notebookId, (doc) => appendNotebookEntry(doc, entry));
     },
-    [books, loadedBooks, applyNotebookContent]
+    [withNotebook]
   );
 
   // "Send to notebook" targets whichever notebook is currently open; if more
@@ -1343,6 +1383,9 @@ function App() {
       for (const book of books) {
         const loadedBook = loadedBooks[book.id];
 
+        // A notebook's pages are authored, not measured - it builds its row
+        // straight from its document, so there's nothing to paginate.
+        if (book.kind === "notebook") continue;
         if (!openBookIds.includes(book.id) || !loadedBook?.data) continue;
         if (paginatedBooks[book.id]?.viewportKey === viewportKey) continue;
 
@@ -1451,19 +1494,19 @@ function App() {
       // font sync goes through the Notebook entity itself instead - the
       // whole row (including current content) is pushed together.
       if (currentUser && token && book && book.kind === "notebook") {
-        const paragraphs =
-          loadedBooks[bookId]?.data?.chapters[0]?.paragraphs ?? [];
         pushNotebook(token, {
           id: bookId,
           title: metadata.title,
-          content: notebookParagraphsToText(paragraphs),
+          content: serializeNotebookDoc(
+            notebookDocsById[bookId] ?? createEmptyNotebookDoc()
+          ),
           languageCode: metadata.languageCode,
           fontFamily: metadata.fontFamily,
           updatedAt
         });
       }
     },
-    [books, currentUser, loadedBooks]
+    [books, currentUser, notebookDocsById]
   );
 
   const deleteBook = useCallback(
@@ -1529,6 +1572,13 @@ function App() {
       )
     : undefined;
   const isBookLoading = openBookIds.some((bookId) => {
+    // A notebook is ready as soon as its document is read - it has no
+    // pagination to wait for, so measuring it against paginatedBooks (as
+    // books are) would leave it loading forever.
+    if (books.find((book) => book.id === bookId)?.kind === "notebook") {
+      return !notebookDocsById[bookId];
+    }
+
     const loadedBook = loadedBooks[bookId];
 
     return (
@@ -1554,9 +1604,11 @@ function App() {
         lastDictionaryLanguageCode,
         lastSpanishVoiceRegion,
         loadedBooks,
+        notebookDocsById,
         notebookModeByBookId,
+        onAddNotebookBox: addNotebookBoxAt,
         onCreateNotebook: createNotebook,
-        onSaveNotebookPageText: saveNotebookPageText,
+        onSaveNotebookBoxText: saveNotebookBoxText,
         onSendToNotebook: sendLookupToNotebook,
         onToggleNotebookMode: toggleNotebookMode,
         openBookIds,
@@ -1590,12 +1642,14 @@ function App() {
       jumpToBookPage,
       lastDictionaryLanguageCode,
       lastSpanishVoiceRegion,
+      addNotebookBoxAt,
       loadedBooks,
+      notebookDocsById,
       notebookModeByBookId,
       openBookIds,
       paginatedBooks,
       savedPageByBookId,
-      saveNotebookPageText,
+      saveNotebookBoxText,
       sendLookupToNotebook,
       signIn,
       signOut,
@@ -1690,6 +1744,7 @@ function App() {
           });
         }}
         pageJump={pageJump}
+        rowJump={rowJump}
         rows={rows}
       />
       {isBookLoading ? (
@@ -1728,9 +1783,11 @@ function createArticleRows({
   lastDictionaryLanguageCode,
   lastSpanishVoiceRegion,
   loadedBooks,
+  notebookDocsById,
   notebookModeByBookId,
+  onAddNotebookBox,
   onCreateNotebook,
-  onSaveNotebookPageText,
+  onSaveNotebookBoxText,
   onSendToNotebook,
   onToggleNotebookMode,
   openBookIds,
@@ -1761,9 +1818,21 @@ function createArticleRows({
   lastDictionaryLanguageCode: string;
   lastSpanishVoiceRegion: SpanishVoiceRegion;
   loadedBooks: Record<string, LoadedBook>;
+  notebookDocsById: Record<string, NotebookDoc>;
   notebookModeByBookId: Record<string, "write" | "lookup">;
+  onAddNotebookBox: (
+    bookId: string,
+    pageId: string,
+    x: number,
+    y: number
+  ) => string;
   onCreateNotebook: () => void;
-  onSaveNotebookPageText: (bookId: string, pageIndex: number, text: string) => void;
+  onSaveNotebookBoxText: (
+    bookId: string,
+    pageId: string,
+    boxId: string,
+    text: string
+  ) => void;
   onSendToNotebook?: (entry: string) => void;
   onToggleNotebookMode: (bookId: string) => void;
   openBookIds: string[];
@@ -1850,44 +1919,76 @@ function createArticleRows({
       .map((bookId) => books.find((book) => book.id === bookId))
       .filter((book): book is BookSource => Boolean(book))
       .map((book) =>
-        createBookRow(
-          book,
-          bookMetadataEdits[book.id],
-          isSyncingState,
-          loadedBooks[book.id],
-          paginatedBooks[book.id]?.pages,
-          savedPageByBookId[book.id],
-          jumpToBookPage,
+        createBookRow({
           autoPlayWordAudio,
-          lastSpanishVoiceRegion,
-          lastDictionaryLanguageCode,
+          book,
           currentUser,
-          onSaveNotebookPageText,
+          isSyncingState,
+          jumpToBookPage,
+          lastDictionaryLanguageCode,
+          lastSpanishVoiceRegion,
+          loadedBook: loadedBooks[book.id],
+          metadataEdit: bookMetadataEdits[book.id],
+          notebookDoc: notebookDocsById[book.id],
+          notebookMode: notebookModeByBookId[book.id],
+          onAddNotebookBox,
+          onSaveNotebookBoxText,
           onSendToNotebook,
-          notebookModeByBookId[book.id],
-          onToggleNotebookMode
-        )
+          onToggleNotebookMode,
+          pages: paginatedBooks[book.id]?.pages,
+          savedPageId: savedPageByBookId[book.id]
+        })
       )
   ];
 }
 
-function createBookRow(
-  book: BookSource,
-  metadataEdit?: BookMetadataEdit,
-  isSyncingState?: boolean,
-  loadedBook?: LoadedBook,
-  pages?: ReaderPage[],
-  savedPageId?: string,
-  jumpToBookPage?: (bookId: string, pageId: string) => void,
-  autoPlayWordAudio?: boolean,
-  lastSpanishVoiceRegion?: SpanishVoiceRegion,
-  lastDictionaryLanguageCode?: string,
-  currentUser?: SyncUser | null,
-  onSaveNotebookPageText?: (bookId: string, pageIndex: number, text: string) => void,
-  onSendToNotebook?: (entry: string) => void,
-  notebookMode?: "write" | "lookup",
-  onToggleNotebookMode?: (bookId: string) => void
-): WorkspaceRow {
+function createBookRow({
+  autoPlayWordAudio,
+  book,
+  currentUser,
+  isSyncingState,
+  jumpToBookPage,
+  lastDictionaryLanguageCode,
+  lastSpanishVoiceRegion,
+  loadedBook,
+  metadataEdit,
+  notebookDoc,
+  notebookMode,
+  onAddNotebookBox,
+  onSaveNotebookBoxText,
+  onSendToNotebook,
+  onToggleNotebookMode,
+  pages,
+  savedPageId
+}: {
+  autoPlayWordAudio?: boolean;
+  book: BookSource;
+  currentUser?: SyncUser | null;
+  isSyncingState?: boolean;
+  jumpToBookPage?: (bookId: string, pageId: string) => void;
+  lastDictionaryLanguageCode?: string;
+  lastSpanishVoiceRegion?: SpanishVoiceRegion;
+  loadedBook?: LoadedBook;
+  metadataEdit?: BookMetadataEdit;
+  notebookDoc?: NotebookDoc;
+  notebookMode?: "write" | "lookup";
+  onAddNotebookBox?: (
+    bookId: string,
+    pageId: string,
+    x: number,
+    y: number
+  ) => string;
+  onSaveNotebookBoxText?: (
+    bookId: string,
+    pageId: string,
+    boxId: string,
+    text: string
+  ) => void;
+  onSendToNotebook?: (entry: string) => void;
+  onToggleNotebookMode?: (bookId: string) => void;
+  pages?: ReaderPage[];
+  savedPageId?: string;
+}): WorkspaceRow {
   const metadata = getBookMetadata(
     book,
     loadedBook,
@@ -1896,9 +1997,65 @@ function createBookRow(
     lastDictionaryLanguageCode
   );
 
-  if (pages?.length) {
-    const isNotebook = book.kind === "notebook";
+  // A notebook's pages are authored, so they come straight from its
+  // document rather than from measured pagination - plus the blank page
+  // always kept at the end, which is how you get a new page just by
+  // swiping past the last one.
+  if (book.kind === "notebook") {
+    if (!notebookDoc) {
+      return {
+        id: book.id,
+        pages: [
+          {
+            id: "status",
+            render: () => (
+              <BookStatusScreen
+                languageCode={metadata.languageCode}
+                loading
+                paginating={false}
+                title={metadata.title}
+              />
+            )
+          }
+        ]
+      };
+    }
 
+    const notebookPages = withTrailingBlankPage(notebookDoc);
+
+    return {
+      id: book.id,
+      initialPageId: savedPageId,
+      pages: notebookPages.map((page, index) => ({
+        id: page.id,
+        render: () => (
+          <NotebookPageScreen
+            author={metadata.author}
+            autoPlayWordAudio={Boolean(autoPlayWordAudio)}
+            currentUser={currentUser ?? null}
+            dictionaryLanguageCode={metadata.dictionaryLanguageCode}
+            fontFamily={metadata.fontFamily}
+            isSyncingState={Boolean(isSyncingState)}
+            languageCode={metadata.languageCode}
+            mode={notebookMode ?? "write"}
+            onAddBox={(x, y) => onAddNotebookBox?.(book.id, page.id, x, y)}
+            onSaveBoxText={(boxId, text) =>
+              onSaveNotebookBoxText?.(book.id, page.id, boxId, text)
+            }
+            onSendToNotebook={onSendToNotebook}
+            onToggleMode={() => onToggleNotebookMode?.(book.id)}
+            page={page}
+            pageNumber={index + 1}
+            pageTotal={notebookPages.length}
+            spanishVoiceRegion={metadata.spanishVoiceRegion}
+            title={metadata.title}
+          />
+        )
+      }))
+    };
+  }
+
+  if (pages?.length) {
     return {
       id: book.id,
       initialPageId: savedPageId,
@@ -1911,34 +2068,6 @@ function createBookRow(
               chapterTitle={page.chapterTitle ?? ""}
               fontFamily={metadata.fontFamily}
               languageCode={metadata.languageCode}
-              title={metadata.title}
-            />
-          ) : isNotebook ? (
-            <NotebookPageScreen
-              author={metadata.author}
-              autoPlayWordAudio={Boolean(autoPlayWordAudio)}
-              currentUser={currentUser ?? null}
-              dictionaryLanguageCode={metadata.dictionaryLanguageCode}
-              fontFamily={metadata.fontFamily}
-              isSyncingState={Boolean(isSyncingState)}
-              languageCode={metadata.languageCode}
-              mode={notebookMode ?? "write"}
-              onPageChange={(pageNumber) => {
-                const nextPage = pages[pageNumber - 1];
-
-                if (nextPage) {
-                  jumpToBookPage?.(book.id, nextPage.id);
-                }
-              }}
-              onSaveText={(text) =>
-                onSaveNotebookPageText?.(book.id, index, text)
-              }
-              onSendToNotebook={onSendToNotebook}
-              onToggleMode={() => onToggleNotebookMode?.(book.id)}
-              paragraphs={page.paragraphs}
-              pageNumber={index + 1}
-              pageTotal={pages.length}
-              spanishVoiceRegion={metadata.spanishVoiceRegion}
               title={metadata.title}
             />
           ) : (
@@ -2886,362 +3015,19 @@ function ReaderScreen({
   const spokenLanguageCode =
     languageCode === "es" ? spanishVoiceRegion : languageCode;
   const [pageDraft, setPageDraft] = useState(String(pageNumber));
-  const [pinnedWords, setPinnedWords] = useState<Set<string>>(new Set());
-  const [pinnedSentences, setPinnedSentences] = useState<Set<string>>(
-    new Set()
-  );
-  const [lookup, setLookup] = useState<WordLookupState | null>(null);
-  const [wordLookupHighlight, setWordLookupHighlight] = useState<{
-    paragraphIndex: number;
-    tokenIndex: number;
-  } | null>(null);
-  const [sentenceLookup, setSentenceLookup] =
-    useState<SentenceLookupState | null>(null);
-  const [selectionRange, setSelectionRange] = useState<{
-    maxIndex: number;
-    minIndex: number;
-    paragraphIndex: number;
-  } | null>(null);
-  const isSelecting = useRef(false);
-  const selectionAnchorIndex = useRef(0);
-  const sentenceLongPressTimer = useRef<number | null>(null);
-  const suppressNextWordClick = useRef(false);
-  const paragraphTokens = useMemo(
-    () => paragraphs.map((paragraph) => tokenizeParagraphWithOffsets(paragraph)),
-    [paragraphs]
-  );
-  // Character ranges of pinned sentences within each paragraph, so the
-  // whole underlined span can cover punctuation/whitespace between words
-  // too, not just the individual word tokens - a pinned sentence with a
-  // dashed underline only under its words, with gaps at every space, would
-  // read as broken rather than "this whole sentence is pinned".
-  const pinnedSentenceRangesByParagraph = useMemo(() => {
-    if (pinnedSentences.size === 0) return [];
-
-    return paragraphs.map((paragraph) => {
-      const ranges: Array<{ start: number; end: number }> = [];
-
-      for (const sentence of pinnedSentences) {
-        const start = paragraph.indexOf(sentence);
-        if (start === -1) continue;
-
-        ranges.push({ start, end: start + sentence.length });
-      }
-
-      return ranges;
-    });
-  }, [paragraphs, pinnedSentences]);
+  const { popups, renderBlock } = useTextLookup({
+    autoPlayWordAudio,
+    blocks: paragraphs,
+    currentUser,
+    dictionaryLanguageCode,
+    languageCode,
+    onSendToNotebook,
+    spokenLanguageCode
+  });
 
   useEffect(() => {
     setPageDraft(String(pageNumber));
   }, [pageNumber]);
-
-  useEffect(() => {
-    return () => {
-      if (sentenceLongPressTimer.current) {
-        window.clearTimeout(sentenceLongPressTimer.current);
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    loadPinnedWords(languageCode).then((words) => {
-      if (!cancelled) setPinnedWords(words);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [languageCode]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    loadPinnedSentences(languageCode).then((sentences) => {
-      if (!cancelled) setPinnedSentences(sentences);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [languageCode]);
-
-  const clearSentenceLongPress = () => {
-    if (sentenceLongPressTimer.current) {
-      window.clearTimeout(sentenceLongPressTimer.current);
-      sentenceLongPressTimer.current = null;
-    }
-  };
-
-  const startSelectionLongPress = (
-    event: PointerEvent<HTMLButtonElement>,
-    paragraphIndex: number,
-    tokenIndex: number
-  ) => {
-    if (event.pointerType === "mouse" && event.button !== 0) return;
-
-    event.currentTarget.setPointerCapture(event.pointerId);
-
-    clearSentenceLongPress();
-    suppressNextWordClick.current = false;
-    sentenceLongPressTimer.current = window.setTimeout(() => {
-      sentenceLongPressTimer.current = null;
-      suppressNextWordClick.current = true;
-      isSelecting.current = true;
-      selectionAnchorIndex.current = tokenIndex;
-      setSelectionRange({ maxIndex: tokenIndex, minIndex: tokenIndex, paragraphIndex });
-    }, LONG_PRESS_MS);
-  };
-
-  const handleSelectionPointerMove = (
-    event: PointerEvent<HTMLButtonElement>,
-    paragraphIndex: number
-  ) => {
-    if (!isSelecting.current) return;
-
-    event.stopPropagation();
-
-    const hovered = document.elementFromPoint(event.clientX, event.clientY);
-    const tokenElement = hovered?.closest<HTMLElement>("[data-token-index]");
-    if (!tokenElement) return;
-
-    if (Number(tokenElement.dataset.paragraphIndex) !== paragraphIndex) return;
-
-    const tokenIndex = Number(tokenElement.dataset.tokenIndex);
-
-    setSelectionRange({
-      maxIndex: Math.max(selectionAnchorIndex.current, tokenIndex),
-      minIndex: Math.min(selectionAnchorIndex.current, tokenIndex),
-      paragraphIndex
-    });
-  };
-
-  const handleSelectionPointerUp = (event: PointerEvent<HTMLButtonElement>) => {
-    clearSentenceLongPress();
-
-    if (!isSelecting.current) return;
-
-    event.stopPropagation();
-    isSelecting.current = false;
-
-    if (!selectionRange) return;
-
-    const tokens = paragraphTokens[selectionRange.paragraphIndex];
-    const text = tokens
-      .slice(selectionRange.minIndex, selectionRange.maxIndex + 1)
-      .map((token) => token.value)
-      .join("")
-      .trim();
-
-    if (text) {
-      translateSelection(text, event.currentTarget.getBoundingClientRect());
-    }
-  };
-
-  const handleSelectionPointerCancel = (
-    event: PointerEvent<HTMLButtonElement>
-  ) => {
-    clearSentenceLongPress();
-
-    if (isSelecting.current) {
-      event.stopPropagation();
-      isSelecting.current = false;
-      setSelectionRange(null);
-    }
-  };
-
-  const translateSelection = (text: string, anchorRect: DOMRect) => {
-    if (languageCode === dictionaryLanguageCode || languageCode === "und") {
-      setSentenceLookup({
-        anchorRect,
-        error:
-          languageCode === "und"
-            ? "Set a book language to translate text."
-            : "Text is already in your dictionary language.",
-        isInstructional: true,
-        languageCode: spokenLanguageCode,
-        pinned: pinnedSentences.has(text),
-        sentence: text,
-        status: "error"
-      });
-      return;
-    }
-
-    setSentenceLookup({
-      anchorRect,
-      languageCode: spokenLanguageCode,
-      pinned: pinnedSentences.has(text),
-      sentence: text,
-      status: "loading"
-    });
-
-    translateText(text, languageCode, dictionaryLanguageCode)
-      .then((result) => {
-        setSentenceLookup((current) =>
-          current && current.sentence === text
-            ? { ...current, result: result.senses[0].definitions[0], status: "ready" }
-            : current
-        );
-      })
-      .catch((error: unknown) => {
-        setSentenceLookup((current) =>
-          current && current.sentence === text
-            ? {
-                ...current,
-                error:
-                  error instanceof Error ? error.message : "Translation failed.",
-                status: "error"
-              }
-            : current
-        );
-      });
-  };
-
-  const handleSentenceDismiss = () => {
-    setSentenceLookup(null);
-    setSelectionRange(null);
-  };
-
-  const handleWordClick = (
-    event: MouseEvent<HTMLButtonElement>,
-    rawWord: string,
-    paragraphIndex: number,
-    tokenIndex: number
-  ) => {
-    clearSentenceLongPress();
-
-    if (suppressNextWordClick.current) {
-      suppressNextWordClick.current = false;
-      return;
-    }
-
-    const word = normalizeWord(rawWord);
-    const displayWord = rawWord.trim();
-    const anchorRect = event.currentTarget.getBoundingClientRect();
-
-    setWordLookupHighlight({ paragraphIndex, tokenIndex });
-
-    if (languageCode === "und") {
-      setLookup({
-        anchorRect,
-        displayWord,
-        error: "Set a book language to look up words.",
-        languageCode: spokenLanguageCode,
-        pinned: pinnedWords.has(word),
-        status: "error",
-        word
-      });
-      return;
-    }
-
-    if (autoPlayWordAudio) {
-      speakWord(word, spokenLanguageCode);
-    }
-
-    setLookup({
-      anchorRect,
-      displayWord,
-      languageCode: spokenLanguageCode,
-      pinned: pinnedWords.has(word),
-      status: "loading",
-      word
-    });
-
-    lookupWord(word, languageCode, dictionaryLanguageCode)
-      .then((result) => {
-        setLookup((current) =>
-          current && current.word === word
-            ? { ...current, result, status: "ready" }
-            : current
-        );
-      })
-      .catch((error: unknown) => {
-        setLookup((current) =>
-          current && current.word === word
-            ? {
-                ...current,
-                error: error instanceof Error ? error.message : "Lookup failed.",
-                status: "error"
-              }
-            : current
-        );
-      });
-  };
-
-  const handleTogglePin = () => {
-    if (!lookup) return;
-
-    const nextPinned = !lookup.pinned;
-    const { word } = lookup;
-
-    setLookup({ ...lookup, pinned: nextPinned });
-    setPinnedWords((current) => {
-      const next = new Set(current);
-
-      if (nextPinned) {
-        next.add(word);
-      } else {
-        next.delete(word);
-      }
-
-      return next;
-    });
-
-    const updatedAt = Date.now();
-    setWordPinned(languageCode, word, nextPinned, updatedAt).catch(() => {});
-
-    const token = getStoredSessionToken();
-    if (currentUser && token) {
-      pushPinnedWord(token, { languageCode, word, pinned: nextPinned, updatedAt });
-    }
-  };
-
-  const handleSentenceTogglePin = () => {
-    if (!sentenceLookup) return;
-
-    const nextPinned = !sentenceLookup.pinned;
-    const { sentence } = sentenceLookup;
-
-    setSentenceLookup({ ...sentenceLookup, pinned: nextPinned });
-    setPinnedSentences((current) => {
-      const next = new Set(current);
-
-      if (nextPinned) {
-        next.add(sentence);
-      } else {
-        next.delete(sentence);
-      }
-
-      return next;
-    });
-
-    const updatedAt = Date.now();
-    setSentencePinned(languageCode, sentence, nextPinned, updatedAt).catch(
-      () => {}
-    );
-
-    const token = getStoredSessionToken();
-    if (currentUser && token) {
-      pushPinnedSentence(token, {
-        languageCode,
-        sentence,
-        pinned: nextPinned,
-        updatedAt
-      });
-    }
-  };
-
-  const handleSendWordToNotebook = () => {
-    if (!lookup) return;
-    onSendToNotebook?.(formatWordNotebookEntry(lookup));
-  };
-
-  const handleSendSentenceToNotebook = () => {
-    if (!sentenceLookup) return;
-    onSendToNotebook?.(formatSentenceNotebookEntry(sentenceLookup));
-  };
 
   const commitPageDraft = () => {
     const parsedPage = Number.parseInt(pageDraft, 10);
@@ -3306,112 +3092,14 @@ function ReaderScreen({
           <div className="reader-page-body">
             {paragraphs.map((paragraph, paragraphIndex) => (
               <p key={`${pageNumber}-${paragraphIndex}`}>
-                {paragraphTokens[paragraphIndex].map((token, tokenIndex) => {
-                  const isHighlighted =
-                    (selectionRange?.paragraphIndex === paragraphIndex &&
-                      tokenIndex >= selectionRange.minIndex &&
-                      tokenIndex <= selectionRange.maxIndex) ||
-                    (wordLookupHighlight?.paragraphIndex === paragraphIndex &&
-                      wordLookupHighlight?.tokenIndex === tokenIndex);
-                  const isPinnedSentenceToken = (
-                    pinnedSentenceRangesByParagraph[paragraphIndex] ?? []
-                  ).some(
-                    (range) => token.start >= range.start && token.end <= range.end
-                  );
-
-                  if (token.type === "word") {
-                    const classNames = ["reader-word"];
-                    if (
-                      pinnedWords.has(normalizeWord(token.value)) ||
-                      isPinnedSentenceToken
-                    ) {
-                      classNames.push("reader-word--pinned");
-                    }
-                    if (isHighlighted) {
-                      classNames.push("sentence-highlight");
-                    }
-
-                    return (
-                      <button
-                        className={classNames.join(" ")}
-                        data-paragraph-index={paragraphIndex}
-                        data-token-index={tokenIndex}
-                        key={tokenIndex}
-                        onClick={(event) =>
-                          handleWordClick(
-                            event,
-                            token.value,
-                            paragraphIndex,
-                            tokenIndex
-                          )
-                        }
-                        onPointerCancel={handleSelectionPointerCancel}
-                        onPointerDown={(event) =>
-                          startSelectionLongPress(event, paragraphIndex, tokenIndex)
-                        }
-                        onPointerLeave={() => {
-                          if (!isSelecting.current) clearSentenceLongPress();
-                        }}
-                        onPointerMove={(event) =>
-                          handleSelectionPointerMove(event, paragraphIndex)
-                        }
-                        onPointerUp={handleSelectionPointerUp}
-                        type="button"
-                      >
-                        {token.value}
-                      </button>
-                    );
-                  }
-
-                  const textClassNames = [];
-                  if (isPinnedSentenceToken) {
-                    textClassNames.push("reader-word--pinned");
-                  }
-                  if (isHighlighted) {
-                    textClassNames.push("sentence-highlight");
-                  }
-
-                  return (
-                    <span
-                      className={textClassNames.join(" ")}
-                      data-paragraph-index={paragraphIndex}
-                      data-token-index={tokenIndex}
-                      key={tokenIndex}
-                    >
-                      {token.value}
-                    </span>
-                  );
-                })}
+                {renderBlock(paragraphIndex)}
               </p>
             ))}
           </div>
         </div>
       </div>
 
-      {lookup ? (
-        <WordLookupPopup
-          lookup={lookup}
-          onDismiss={() => {
-            setLookup(null);
-            setWordLookupHighlight(null);
-          }}
-          onSendToNotebook={
-            onSendToNotebook ? handleSendWordToNotebook : undefined
-          }
-          onTogglePin={handleTogglePin}
-        />
-      ) : null}
-
-      {sentenceLookup ? (
-        <SentenceLookupPopup
-          lookup={sentenceLookup}
-          onDismiss={handleSentenceDismiss}
-          onSendToNotebook={
-            onSendToNotebook ? handleSendSentenceToNotebook : undefined
-          }
-          onTogglePin={handleSentenceTogglePin}
-        />
-      ) : null}
+      {popups}
     </article>
   );
 }
@@ -3465,10 +3153,11 @@ function ChapterTitleScreen({
   );
 }
 
-// A notebook page is either written on directly or read/looked-up in - the
-// same choice, kept for the whole notebook (not per page) in
-// notebookModeByBookId, so swiping to another page while writing keeps you
-// writing, exactly like swiping while reading keeps you reading.
+// A notebook page is a fixed canvas, not a column of text: boxes sit where
+// they were placed and nothing scrolls, so the page behaves like a page in
+// OneNote or Paint rather than a document editor. Write and look-up are the
+// same layout - only whether a box is a textarea or tappable words changes -
+// so switching modes never moves anything.
 function NotebookPageScreen({
   author,
   autoPlayWordAudio,
@@ -3478,11 +3167,11 @@ function NotebookPageScreen({
   isSyncingState,
   languageCode,
   mode,
-  onPageChange,
-  onSaveText,
+  onAddBox,
+  onSaveBoxText,
   onSendToNotebook,
   onToggleMode,
-  paragraphs,
+  page,
   pageNumber,
   pageTotal,
   spanishVoiceRegion,
@@ -3496,123 +3185,60 @@ function NotebookPageScreen({
   isSyncingState: boolean;
   languageCode: string;
   mode: "write" | "lookup";
-  onPageChange: (pageNumber: number) => void;
-  onSaveText: (text: string) => void;
+  onAddBox: (x: number, y: number) => string | undefined;
+  onSaveBoxText: (boxId: string, text: string) => void;
   onSendToNotebook?: (entry: string) => void;
   onToggleMode: () => void;
-  paragraphs: string[];
+  page: NotebookPage;
   pageNumber: number;
   pageTotal: number;
   spanishVoiceRegion: SpanishVoiceRegion;
   title: string;
 }) {
-  return (
-    <div className="relative h-full w-full">
-      {mode === "lookup" ? (
-        <ReaderScreen
-          author={author}
-          autoPlayWordAudio={autoPlayWordAudio}
-          currentUser={currentUser}
-          dictionaryLanguageCode={dictionaryLanguageCode}
-          fontFamily={fontFamily}
-          isSyncingState={isSyncingState}
-          languageCode={languageCode}
-          onPageChange={onPageChange}
-          onSendToNotebook={onSendToNotebook}
-          paragraphs={paragraphs}
-          pageNumber={pageNumber}
-          pageTotal={pageTotal}
-          spanishVoiceRegion={spanishVoiceRegion}
-          title={title}
-        />
-      ) : (
-        <NotebookWritePage
-          author={author}
-          fontFamily={fontFamily}
-          initialText={notebookParagraphsToText(paragraphs)}
-          languageCode={languageCode}
-          onSave={onSaveText}
-          pageNumber={pageNumber}
-          pageTotal={pageTotal}
-          title={title}
-        />
-      )}
-      <button
-        aria-label={mode === "write" ? "Switch to look-up mode" : "Switch to write mode"}
-        className="fixed bottom-5 right-5 z-30 rounded-full border border-neutral-200 bg-white p-2 text-neutral-500 shadow-sm dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 sm:bottom-7 sm:right-10"
-        onClick={onToggleMode}
-        type="button"
-      >
-        {mode === "write" ? (
-          <BookOpen className="h-4 w-4" />
-        ) : (
-          <Pencil className="h-4 w-4" />
-        )}
-      </button>
-    </div>
-  );
-}
+  const spokenLanguageCode =
+    languageCode === "es" ? spanishVoiceRegion : languageCode;
+  const [focusedBoxId, setFocusedBoxId] = useState<string | null>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const tapStart = useRef<{ x: number; y: number } | null>(null);
+  const boxTexts = useMemo(() => page.boxes.map((box) => box.text), [page.boxes]);
+  const { popups, renderBlock } = useTextLookup({
+    autoPlayWordAudio,
+    blocks: boxTexts,
+    currentUser,
+    dictionaryLanguageCode,
+    languageCode,
+    onSendToNotebook,
+    spokenLanguageCode
+  });
 
-// The editable half of NotebookPageScreen: one page's worth of text,
-// pre-filled from that page's own paragraphs (not the whole notebook), an
-// autosaving textarea styled like a reading page. Typing on this page never
-// reflows others live - saving re-paginates the whole notebook from
-// scratch (see replacePageParagraphs/applyNotebookContent), which is what
-// actually moves overflow onto the next page.
-function NotebookWritePage({
-  author,
-  fontFamily,
-  initialText,
-  languageCode,
-  onSave,
-  pageNumber,
-  pageTotal,
-  title
-}: {
-  author: string;
-  fontFamily: FontFamily;
-  initialText: string;
-  languageCode: string;
-  onSave: (text: string) => void;
-  pageNumber: number;
-  pageTotal: number;
-  title: string;
-}) {
-  const [text, setText] = useState(initialText);
-  const latestText = useRef(initialText);
-  const lastSavedText = useRef(initialText);
-  const saveTimer = useRef<number | null>(null);
+  // A tap on empty canvas starts a box there; a drag is the page-turn
+  // gesture and must not. SwipeWorkspace only suppresses the click after a
+  // swipe when the gesture started on something interactive, and bare
+  // canvas isn't - so the distinction is made here, by movement.
+  const handleCanvasPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    tapStart.current = { x: event.clientX, y: event.clientY };
+  };
 
-  useEffect(() => {
-    return () => {
-      if (saveTimer.current) {
-        window.clearTimeout(saveTimer.current);
-      }
-      if (latestText.current !== lastSavedText.current) {
-        onSave(latestText.current);
-      }
-    };
-    // Deliberately mount-only: the cleanup reads latestText/lastSavedText
-    // via refs so it always sees current values regardless of when the
-    // component unmounts (e.g. swiping away), without needing onSave in
-    // the deps. A fresh instance mounts per page/save (new initialText),
-    // which is intended - see the note above about full re-pagination.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const handleCanvasPointerUp = (event: PointerEvent<HTMLDivElement>) => {
+    const start = tapStart.current;
+    tapStart.current = null;
 
-  const handleChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
-    const value = event.currentTarget.value;
-    setText(value);
-    latestText.current = value;
-
-    if (saveTimer.current) {
-      window.clearTimeout(saveTimer.current);
+    if (mode !== "write" || !start || !canvasRef.current) return;
+    if (event.target !== canvasRef.current) return;
+    if (
+      Math.abs(event.clientX - start.x) > 10 ||
+      Math.abs(event.clientY - start.y) > 10
+    ) {
+      return;
     }
-    saveTimer.current = window.setTimeout(() => {
-      lastSavedText.current = value;
-      onSave(value);
-      saveTimer.current = null;
-    }, 800);
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    const boxId = onAddBox(
+      (event.clientX - rect.left) / rect.width,
+      (event.clientY - rect.top) / rect.height
+    );
+
+    if (boxId) setFocusedBoxId(boxId);
   };
 
   return (
@@ -3625,23 +3251,151 @@ function NotebookWritePage({
       <header className="mx-auto flex w-full max-w-3xl min-w-0 items-baseline justify-between gap-4 border-neutral-200 pb-3 text-sm text-neutral-500 dark:text-neutral-400">
         <div className="min-w-0 overflow-hidden">
           <span className="truncate">{title}</span>
-          <span className="mx-2">⋅</span>
-          <span className="truncate">{author}</span>
+          {author ? (
+            <>
+              <span className="mx-2">⋅</span>
+              <span className="truncate">{author}</span>
+            </>
+          ) : null}
         </div>
         <span className="shrink-0 [font-variant-numeric:tabular-nums]">
           {pageNumber} / {pageTotal}
         </span>
+        <span
+          aria-label={isSyncingState ? "Syncing progress" : undefined}
+          className={`fixed right-3 top-3 z-30 h-1.5 w-1.5 rounded-full bg-neutral-950 transition-opacity duration-500 dark:bg-neutral-100 sm:right-5 sm:top-5 ${
+            isSyncingState
+              ? "animate-pulse opacity-40"
+              : "pointer-events-none opacity-0"
+          }`}
+        />
       </header>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-3xl min-w-0 flex-col overflow-hidden py-5 sm:py-8">
-        <textarea
-          className="flex-1 resize-none bg-transparent text-lg leading-relaxed outline-none placeholder:text-neutral-400 dark:placeholder:text-neutral-600"
-          onChange={handleChange}
-          placeholder="Write here…"
-          value={text}
-        />
+      <div className="mx-auto w-full max-w-3xl min-w-0 overflow-hidden py-5 sm:py-8">
+        <div
+          className="relative h-full w-full"
+          onPointerDown={handleCanvasPointerDown}
+          onPointerUp={handleCanvasPointerUp}
+          ref={canvasRef}
+        >
+          {page.boxes.length === 0 && mode === "write" ? (
+            <p className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-neutral-300 dark:text-neutral-600">
+              Tap anywhere to write
+            </p>
+          ) : null}
+
+          {page.boxes.map((box, blockIndex) => (
+            <div
+              className="absolute"
+              key={box.id}
+              style={{
+                left: `${box.x * 100}%`,
+                top: `${box.y * 100}%`,
+                width: `${box.width * 100}%`
+              }}
+            >
+              {mode === "write" ? (
+                <NotebookBoxEditor
+                  box={box}
+                  onSave={(text) => onSaveBoxText(box.id, text)}
+                  shouldFocus={box.id === focusedBoxId}
+                />
+              ) : (
+                <p className="whitespace-pre-wrap text-base leading-relaxed">
+                  {renderBlock(blockIndex)}
+                </p>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
+
+      <button
+        aria-label={mode === "write" ? "Switch to look-up mode" : "Switch to write mode"}
+        className="fixed bottom-5 right-5 z-30 rounded-full border border-neutral-200 bg-white p-2 text-neutral-500 shadow-sm dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 sm:bottom-7 sm:right-10"
+        onClick={onToggleMode}
+        type="button"
+      >
+        {mode === "write" ? (
+          <BookOpen className="h-4 w-4" />
+        ) : (
+          <Pencil className="h-4 w-4" />
+        )}
+      </button>
+
+      {popups}
     </article>
+  );
+}
+
+// One text box. Grows to fit what's in it rather than scrolling, so a box
+// never hides its own text, and autosaves on a debounce - swiping away is
+// how you leave a page, so there's no natural moment to hang a save off of.
+function NotebookBoxEditor({
+  box,
+  onSave,
+  shouldFocus
+}: {
+  box: NotebookBox;
+  onSave: (text: string) => void;
+  shouldFocus: boolean;
+}) {
+  const [text, setText] = useState(box.text);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const latestText = useRef(box.text);
+  const lastSavedText = useRef(box.text);
+  const saveTimer = useRef<number | null>(null);
+
+  const resize = () => {
+    const element = textareaRef.current;
+    if (!element) return;
+
+    element.style.height = "auto";
+    element.style.height = `${element.scrollHeight}px`;
+  };
+
+  useEffect(() => {
+    resize();
+    if (shouldFocus) textareaRef.current?.focus();
+
+    return () => {
+      if (saveTimer.current) {
+        window.clearTimeout(saveTimer.current);
+      }
+      if (latestText.current !== lastSavedText.current) {
+        onSave(latestText.current);
+      }
+    };
+    // Mount-only: the cleanup reads the refs, so it always sees the current
+    // text whenever the box unmounts (swiping away, switching mode).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleChange = (event: ChangeEvent<HTMLTextAreaElement>) => {
+    const value = event.currentTarget.value;
+    setText(value);
+    latestText.current = value;
+    resize();
+
+    if (saveTimer.current) {
+      window.clearTimeout(saveTimer.current);
+    }
+    saveTimer.current = window.setTimeout(() => {
+      lastSavedText.current = value;
+      onSave(value);
+      saveTimer.current = null;
+    }, 800);
+  };
+
+  return (
+    <textarea
+      className="w-full resize-none overflow-hidden bg-transparent text-base leading-relaxed outline-none placeholder:text-neutral-300 dark:placeholder:text-neutral-600"
+      onChange={handleChange}
+      placeholder="…"
+      ref={textareaRef}
+      rows={1}
+      value={text}
+    />
   );
 }
 
@@ -3733,34 +3487,6 @@ async function seedDemoBook() {
     },
     data
   });
-}
-
-// Notebook text round-trips through a plain string on the wire (and in the
-// edit screen's textarea) but as EpubSection.paragraphs locally - the same
-// blank-line convention epub parsing already uses.
-function notebookTextToParagraphs(text: string): string[] {
-  return text
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean);
-}
-
-function notebookParagraphsToText(paragraphs: string[]): string {
-  return paragraphs.join("\n\n");
-}
-
-function formatWordNotebookEntry(lookup: WordLookupState): string {
-  const definitions = (lookup.result?.senses ?? [])
-    .flatMap((sense) => sense.definitions)
-    .filter(Boolean);
-
-  return definitions.length > 0
-    ? `${lookup.displayWord} — ${definitions.join("; ")}`
-    : lookup.displayWord;
-}
-
-function formatSentenceNotebookEntry(lookup: SentenceLookupState): string {
-  return lookup.result ? `${lookup.sentence} — ${lookup.result}` : lookup.sentence;
 }
 
 function slugify(input: string) {

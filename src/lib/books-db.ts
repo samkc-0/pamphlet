@@ -1,5 +1,13 @@
 import type { BookSource } from "@/books";
 import { loadEpubFromArrayBuffer, type EpubBook } from "@/lib/epub";
+import {
+  createEmptyNotebookDoc,
+  notebookDocFromParagraphs,
+  notebookDocToParagraphs,
+  toNotebookDoc,
+  type NotebookDoc,
+  type NotebookPage
+} from "@/lib/notebooks";
 
 const LIBRARY_DATABASE_NAME = "pamphlet-library";
 const LIBRARY_DATABASE_VERSION = 3;
@@ -10,11 +18,22 @@ const DATABASE_OPEN_TIMEOUT_MS = 4000;
 // A book's data is either the original file's raw bytes (uploaded on this
 // device, re-parsed on every read), already-extracted text pulled from
 // another device via sync (which never had a local raw file to begin with),
-// or a notebook's own editable paragraphs (never parsed from a file at all).
+// or a notebook's own authored pages (never parsed from a file at all).
+//
+// `paragraphs` on the notebook variant is the pre-boxes shape, kept only so
+// notebooks written before text boxes existed still read back - nothing
+// writes it any more. The store's schema is untouched by that change (both
+// shapes are just records under the same keyPath), so no database version
+// bump is involved.
 type StoredBookDataRecord =
   | { data: ArrayBuffer; id: string; kind: "raw" }
   | { content: EpubBook; id: string; kind: "extracted" }
-  | { id: string; kind: "notebook"; paragraphs: string[] };
+  | {
+      id: string;
+      kind: "notebook";
+      pages?: NotebookPage[];
+      paragraphs?: string[];
+    };
 
 export type UploadedBook = {
   book: BookSource;
@@ -28,8 +47,22 @@ export type SyncedBook = {
 
 export type NotebookRecord = {
   book: BookSource;
-  paragraphs: string[];
+  doc: NotebookDoc;
 };
+
+function notebookDocFromRecord(record: {
+  pages?: NotebookPage[];
+  paragraphs?: string[];
+}): NotebookDoc {
+  const doc = toNotebookDoc({ pages: record.pages ?? [] });
+
+  if (doc && doc.pages.some((page) => page.boxes.length > 0)) return doc;
+  if (record.paragraphs?.length) {
+    return notebookDocFromParagraphs(record.paragraphs);
+  }
+
+  return doc ?? createEmptyNotebookDoc();
+}
 
 export async function loadBookCatalog() {
   const database = await openLibraryDatabase();
@@ -99,13 +132,41 @@ export async function readBookContent(book: BookSource): Promise<EpubBook> {
       if (record.kind === "notebook") {
         return {
           author: book.author,
-          chapters: [{ id: "content", paragraphs: record.paragraphs }],
+          chapters: [
+            {
+              id: "content",
+              paragraphs: notebookDocToParagraphs(notebookDocFromRecord(record))
+            }
+          ],
           language: book.language,
           title: book.title
         } satisfies EpubBook;
       }
       return record.content;
     });
+}
+
+// A notebook's authored pages, with the boxes and positions that
+// readBookContent's flattened text throws away.
+export async function readNotebookDoc(book: BookSource): Promise<NotebookDoc> {
+  const database = await openLibraryDatabase();
+
+  return new Promise<NotebookDoc>((resolve, reject) => {
+    const transaction = database.transaction(BOOK_DATA_STORE_NAME, "readonly");
+    const request = transaction.objectStore(BOOK_DATA_STORE_NAME).get(book.storageKey);
+
+    request.onsuccess = () => {
+      const record = request.result as StoredBookDataRecord | undefined;
+
+      if (!record || record.kind !== "notebook") {
+        resolve(createEmptyNotebookDoc());
+        return;
+      }
+
+      resolve(notebookDocFromRecord(record));
+    };
+    request.onerror = () => reject(request.error);
+  }).finally(() => database.close());
 }
 
 export async function saveUploadedBook(uploadedBook: UploadedBook) {
@@ -159,7 +220,7 @@ export async function saveSyncedBook(syncedBook: SyncedBook) {
 }
 
 // Saves a newly-created notebook, or one pulled from the sync server -
-// either way there's no raw file, just editable paragraphs.
+// either way there's no raw file, just authored pages.
 export async function saveNotebook(notebook: NotebookRecord) {
   const database = await openLibraryDatabase();
 
@@ -174,7 +235,7 @@ export async function saveNotebook(notebook: NotebookRecord) {
     const dataRequest = dataStore.put({
       id: notebook.book.storageKey,
       kind: "notebook",
-      paragraphs: notebook.paragraphs
+      pages: notebook.doc.pages
     } satisfies StoredBookDataRecord);
 
     transaction.oncomplete = () => resolve();
@@ -184,13 +245,13 @@ export async function saveNotebook(notebook: NotebookRecord) {
   }).finally(() => database.close());
 }
 
-// Updates a notebook's text after an edit or a "send to notebook" append.
-// Only the data row's paragraphs and the catalog row's fingerprint/updatedAt
-// change - fingerprint is recomputed from the new content so pagination-
-// cache.ts's fingerprint-keyed cache naturally invalidates the old pages.
+// Updates a notebook's pages after an edit or a "send to notebook" append.
+// Only the data row's pages and the catalog row's fingerprint/updatedAt
+// change - the fingerprint is recomputed from the new content so it still
+// reflects what the notebook currently holds.
 export async function saveNotebookContent(
   book: BookSource,
-  paragraphs: string[],
+  doc: NotebookDoc,
   fingerprint: string,
   updatedAt: number
 ) {
@@ -211,7 +272,7 @@ export async function saveNotebookContent(
     const dataRequest = dataStore.put({
       id: book.storageKey,
       kind: "notebook",
-      paragraphs
+      pages: doc.pages
     } satisfies StoredBookDataRecord);
 
     transaction.oncomplete = () => resolve();
