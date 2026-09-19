@@ -250,11 +250,13 @@ export function SwipeWorkspace({
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!swipe) return;
 
-    if (isTextEntryTarget(event.target)) {
-      pointerStart.current = null;
-      return;
-    }
-
+    // A text-entry target (a notebook's writing page) is deliberately NOT
+    // excluded here, unlike the keyboard handler below - a drag past
+    // SWIPE_THRESHOLD should still page-turn even while the textarea is
+    // focused, exactly like swiping off a button already does via
+    // isInteractiveTarget (which already includes textarea in its
+    // selector). A small tap-to-place-cursor never reaches the threshold,
+    // so ordinary text editing is unaffected.
     pointerStart.current = {
       interactive: isInteractiveTarget(event.target),
       x: event.clientX,

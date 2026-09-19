@@ -1,6 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, MouseEvent, PointerEvent } from "react";
-import { NotebookPen, RefreshCw, Settings, UserRound } from "lucide-react";
+import {
+  BookOpen,
+  NotebookPen,
+  Pencil,
+  RefreshCw,
+  Settings,
+  UserRound
+} from "lucide-react";
 
 import type { BookSource } from "@/books";
 import { DictionariesScreen } from "@/components/dictionaries-screen";
@@ -1060,15 +1067,41 @@ function App() {
     [bookMetadataEdits, currentUser]
   );
 
-  const saveNotebookText = useCallback(
-    (bookId: string, text: string) => {
+  // Reconstructs the notebook's full paragraph list by flattening every
+  // page's current paragraphs in order and substituting just the edited
+  // page's slice, then re-paginates the whole thing from scratch via
+  // applyNotebookContent - this is what actually moves overflow onto the
+  // next page (or pulls it back) after an edit, since pages themselves are
+  // never edited in place, only the underlying text is.
+  const saveNotebookPageText = useCallback(
+    (bookId: string, pageIndex: number, text: string) => {
       const book = books.find((candidate) => candidate.id === bookId);
       if (!book) return;
 
-      void applyNotebookContent(book, notebookTextToParagraphs(text));
+      const pages = paginatedBooks[bookId]?.pages ?? [];
+      const paragraphs = pages.length
+        ? pages.flatMap((page, index) =>
+            index === pageIndex
+              ? notebookTextToParagraphs(text)
+              : page.paragraphs
+          )
+        : notebookTextToParagraphs(text);
+
+      void applyNotebookContent(book, paragraphs);
     },
-    [books, applyNotebookContent]
+    [books, paginatedBooks, applyNotebookContent]
   );
+
+  const [notebookModeByBookId, setNotebookModeByBookId] = useState<
+    Record<string, "write" | "lookup">
+  >({});
+
+  const toggleNotebookMode = useCallback((bookId: string) => {
+    setNotebookModeByBookId((current) => ({
+      ...current,
+      [bookId]: (current[bookId] ?? "write") === "write" ? "lookup" : "write"
+    }));
+  }, []);
 
   const sendToNotebook = useCallback(
     (notebookId: string, entry: string) => {
@@ -1521,9 +1554,11 @@ function App() {
         lastDictionaryLanguageCode,
         lastSpanishVoiceRegion,
         loadedBooks,
+        notebookModeByBookId,
         onCreateNotebook: createNotebook,
-        onSaveNotebookContent: saveNotebookText,
+        onSaveNotebookPageText: saveNotebookPageText,
         onSendToNotebook: sendLookupToNotebook,
+        onToggleNotebookMode: toggleNotebookMode,
         openBookIds,
         activePageByRowId,
         jumpToBookPage,
@@ -1556,10 +1591,11 @@ function App() {
       lastDictionaryLanguageCode,
       lastSpanishVoiceRegion,
       loadedBooks,
+      notebookModeByBookId,
       openBookIds,
       paginatedBooks,
       savedPageByBookId,
-      saveNotebookText,
+      saveNotebookPageText,
       sendLookupToNotebook,
       signIn,
       signOut,
@@ -1567,6 +1603,7 @@ function App() {
       toggleAutoPlayWordAudio,
       toggleDarkMode,
       toggleBook,
+      toggleNotebookMode,
       uploadError,
       uploadBooks
     ]
@@ -1691,9 +1728,11 @@ function createArticleRows({
   lastDictionaryLanguageCode,
   lastSpanishVoiceRegion,
   loadedBooks,
+  notebookModeByBookId,
   onCreateNotebook,
-  onSaveNotebookContent,
+  onSaveNotebookPageText,
   onSendToNotebook,
+  onToggleNotebookMode,
   openBookIds,
   openBookSettings,
   paginatedBooks,
@@ -1722,9 +1761,11 @@ function createArticleRows({
   lastDictionaryLanguageCode: string;
   lastSpanishVoiceRegion: SpanishVoiceRegion;
   loadedBooks: Record<string, LoadedBook>;
+  notebookModeByBookId: Record<string, "write" | "lookup">;
   onCreateNotebook: () => void;
-  onSaveNotebookContent: (bookId: string, text: string) => void;
+  onSaveNotebookPageText: (bookId: string, pageIndex: number, text: string) => void;
   onSendToNotebook?: (entry: string) => void;
+  onToggleNotebookMode: (bookId: string) => void;
   openBookIds: string[];
   openBookSettings: (bookId: string) => void;
   paginatedBooks: Record<string, PaginatedBook>;
@@ -1821,8 +1862,10 @@ function createArticleRows({
           lastSpanishVoiceRegion,
           lastDictionaryLanguageCode,
           currentUser,
-          onSaveNotebookContent,
-          onSendToNotebook
+          onSaveNotebookPageText,
+          onSendToNotebook,
+          notebookModeByBookId[book.id],
+          onToggleNotebookMode
         )
       )
   ];
@@ -1840,8 +1883,10 @@ function createBookRow(
   lastSpanishVoiceRegion?: SpanishVoiceRegion,
   lastDictionaryLanguageCode?: string,
   currentUser?: SyncUser | null,
-  onSaveNotebookContent?: (bookId: string, text: string) => void,
-  onSendToNotebook?: (entry: string) => void
+  onSaveNotebookPageText?: (bookId: string, pageIndex: number, text: string) => void,
+  onSendToNotebook?: (entry: string) => void,
+  notebookMode?: "write" | "lookup",
+  onToggleNotebookMode?: (bookId: string) => void
 ): WorkspaceRow {
   const metadata = getBookMetadata(
     book,
@@ -1853,64 +1898,74 @@ function createBookRow(
 
   if (pages?.length) {
     const isNotebook = book.kind === "notebook";
-    const editPage = isNotebook
-      ? {
-          id: `${book.id}-edit`,
-          render: () => (
-            <NotebookEditScreen
-              fontFamily={metadata.fontFamily}
-              initialText={notebookParagraphsToText(
-                loadedBook?.data?.chapters[0]?.paragraphs ?? []
-              )}
-              languageCode={metadata.languageCode}
-              onSave={(text) => onSaveNotebookContent?.(book.id, text)}
-              title={metadata.title}
-            />
-          )
-        }
-      : null;
-    const pageCountOffset = editPage ? 1 : 0;
-    const contentPages = pages.map((page, index) => ({
-      id: page.id,
-      render: () =>
-        page.isTitlePage ? (
-          <ChapterTitleScreen
-            author={metadata.author}
-            chapterTitle={page.chapterTitle ?? ""}
-            fontFamily={metadata.fontFamily}
-            languageCode={metadata.languageCode}
-            title={metadata.title}
-          />
-        ) : (
-          <ReaderScreen
-            author={metadata.author}
-            autoPlayWordAudio={Boolean(autoPlayWordAudio)}
-            currentUser={currentUser ?? null}
-            dictionaryLanguageCode={metadata.dictionaryLanguageCode}
-            fontFamily={metadata.fontFamily}
-            isSyncingState={Boolean(isSyncingState)}
-            languageCode={metadata.languageCode}
-            spanishVoiceRegion={metadata.spanishVoiceRegion}
-            onSendToNotebook={onSendToNotebook}
-            pageNumber={index + 1 + pageCountOffset}
-            pageTotal={pages.length + pageCountOffset}
-            onPageChange={(pageNumber) => {
-              const nextPage = pages[pageNumber - 1 - pageCountOffset];
-
-              if (nextPage) {
-                jumpToBookPage?.(book.id, nextPage.id);
-              }
-            }}
-            paragraphs={page.paragraphs}
-            title={metadata.title}
-          />
-        )
-    }));
 
     return {
       id: book.id,
       initialPageId: savedPageId,
-      pages: editPage ? [editPage, ...contentPages] : contentPages
+      pages: pages.map((page, index) => ({
+        id: page.id,
+        render: () =>
+          page.isTitlePage ? (
+            <ChapterTitleScreen
+              author={metadata.author}
+              chapterTitle={page.chapterTitle ?? ""}
+              fontFamily={metadata.fontFamily}
+              languageCode={metadata.languageCode}
+              title={metadata.title}
+            />
+          ) : isNotebook ? (
+            <NotebookPageScreen
+              author={metadata.author}
+              autoPlayWordAudio={Boolean(autoPlayWordAudio)}
+              currentUser={currentUser ?? null}
+              dictionaryLanguageCode={metadata.dictionaryLanguageCode}
+              fontFamily={metadata.fontFamily}
+              isSyncingState={Boolean(isSyncingState)}
+              languageCode={metadata.languageCode}
+              mode={notebookMode ?? "write"}
+              onPageChange={(pageNumber) => {
+                const nextPage = pages[pageNumber - 1];
+
+                if (nextPage) {
+                  jumpToBookPage?.(book.id, nextPage.id);
+                }
+              }}
+              onSaveText={(text) =>
+                onSaveNotebookPageText?.(book.id, index, text)
+              }
+              onSendToNotebook={onSendToNotebook}
+              onToggleMode={() => onToggleNotebookMode?.(book.id)}
+              paragraphs={page.paragraphs}
+              pageNumber={index + 1}
+              pageTotal={pages.length}
+              spanishVoiceRegion={metadata.spanishVoiceRegion}
+              title={metadata.title}
+            />
+          ) : (
+            <ReaderScreen
+              author={metadata.author}
+              autoPlayWordAudio={Boolean(autoPlayWordAudio)}
+              currentUser={currentUser ?? null}
+              dictionaryLanguageCode={metadata.dictionaryLanguageCode}
+              fontFamily={metadata.fontFamily}
+              isSyncingState={Boolean(isSyncingState)}
+              languageCode={metadata.languageCode}
+              spanishVoiceRegion={metadata.spanishVoiceRegion}
+              onSendToNotebook={onSendToNotebook}
+              pageNumber={index + 1}
+              pageTotal={pages.length}
+              onPageChange={(pageNumber) => {
+                const nextPage = pages[pageNumber - 1];
+
+                if (nextPage) {
+                  jumpToBookPage?.(book.id, nextPage.id);
+                }
+              }}
+              paragraphs={page.paragraphs}
+              title={metadata.title}
+            />
+          )
+      }))
     };
   }
 
@@ -3410,23 +3465,117 @@ function ChapterTitleScreen({
   );
 }
 
-// The one page (always first) that makes a notebook "just an editable book":
-// a plain autosaving textarea. Every other page in a notebook's row is a
-// normal ReaderScreen over the saved text, unmodified. Autosaves on a
-// debounce (rather than requiring an explicit Save) since swiping away is
-// how you navigate this app - there's no natural "leave the screen" action
-// to hang a save off of.
-function NotebookEditScreen({
+// A notebook page is either written on directly or read/looked-up in - the
+// same choice, kept for the whole notebook (not per page) in
+// notebookModeByBookId, so swiping to another page while writing keeps you
+// writing, exactly like swiping while reading keeps you reading.
+function NotebookPageScreen({
+  author,
+  autoPlayWordAudio,
+  currentUser,
+  dictionaryLanguageCode,
+  fontFamily,
+  isSyncingState,
+  languageCode,
+  mode,
+  onPageChange,
+  onSaveText,
+  onSendToNotebook,
+  onToggleMode,
+  paragraphs,
+  pageNumber,
+  pageTotal,
+  spanishVoiceRegion,
+  title
+}: {
+  author: string;
+  autoPlayWordAudio: boolean;
+  currentUser: SyncUser | null;
+  dictionaryLanguageCode: string;
+  fontFamily: FontFamily;
+  isSyncingState: boolean;
+  languageCode: string;
+  mode: "write" | "lookup";
+  onPageChange: (pageNumber: number) => void;
+  onSaveText: (text: string) => void;
+  onSendToNotebook?: (entry: string) => void;
+  onToggleMode: () => void;
+  paragraphs: string[];
+  pageNumber: number;
+  pageTotal: number;
+  spanishVoiceRegion: SpanishVoiceRegion;
+  title: string;
+}) {
+  return (
+    <div className="relative h-full w-full">
+      {mode === "lookup" ? (
+        <ReaderScreen
+          author={author}
+          autoPlayWordAudio={autoPlayWordAudio}
+          currentUser={currentUser}
+          dictionaryLanguageCode={dictionaryLanguageCode}
+          fontFamily={fontFamily}
+          isSyncingState={isSyncingState}
+          languageCode={languageCode}
+          onPageChange={onPageChange}
+          onSendToNotebook={onSendToNotebook}
+          paragraphs={paragraphs}
+          pageNumber={pageNumber}
+          pageTotal={pageTotal}
+          spanishVoiceRegion={spanishVoiceRegion}
+          title={title}
+        />
+      ) : (
+        <NotebookWritePage
+          author={author}
+          fontFamily={fontFamily}
+          initialText={notebookParagraphsToText(paragraphs)}
+          languageCode={languageCode}
+          onSave={onSaveText}
+          pageNumber={pageNumber}
+          pageTotal={pageTotal}
+          title={title}
+        />
+      )}
+      <button
+        aria-label={mode === "write" ? "Switch to look-up mode" : "Switch to write mode"}
+        className="fixed bottom-5 right-5 z-30 rounded-full border border-neutral-200 bg-white p-2 text-neutral-500 shadow-sm dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-400 sm:bottom-7 sm:right-10"
+        onClick={onToggleMode}
+        type="button"
+      >
+        {mode === "write" ? (
+          <BookOpen className="h-4 w-4" />
+        ) : (
+          <Pencil className="h-4 w-4" />
+        )}
+      </button>
+    </div>
+  );
+}
+
+// The editable half of NotebookPageScreen: one page's worth of text,
+// pre-filled from that page's own paragraphs (not the whole notebook), an
+// autosaving textarea styled like a reading page. Typing on this page never
+// reflows others live - saving re-paginates the whole notebook from
+// scratch (see replacePageParagraphs/applyNotebookContent), which is what
+// actually moves overflow onto the next page.
+function NotebookWritePage({
+  author,
   fontFamily,
   initialText,
   languageCode,
   onSave,
+  pageNumber,
+  pageTotal,
   title
 }: {
+  author: string;
   fontFamily: FontFamily;
   initialText: string;
   languageCode: string;
   onSave: (text: string) => void;
+  pageNumber: number;
+  pageTotal: number;
   title: string;
 }) {
   const [text, setText] = useState(initialText);
@@ -3445,7 +3594,9 @@ function NotebookEditScreen({
     };
     // Deliberately mount-only: the cleanup reads latestText/lastSavedText
     // via refs so it always sees current values regardless of when the
-    // component unmounts, without needing onSave/initialText in the deps.
+    // component unmounts (e.g. swiping away), without needing onSave in
+    // the deps. A fresh instance mounts per page/save (new initialText),
+    // which is intended - see the note above about full re-pagination.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -3465,16 +3616,24 @@ function NotebookEditScreen({
   };
 
   return (
-    <div
-      className={`flex h-full w-full flex-col px-5 py-8 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-12 ${
+    <article
+      className={`grid h-full grid-rows-[auto_1fr] overflow-hidden px-5 py-5 text-neutral-950 dark:text-neutral-100 sm:px-10 sm:py-7 ${
         fontFamily === "sans" ? "sans-serif-font" : ""
       }`}
       lang={languageCode}
     >
-      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col">
-        <h1 className="mb-4 text-center font-['Cormorant_Unicase'] text-3xl font-bold leading-tight sm:text-4xl">
-          {title}
-        </h1>
+      <header className="mx-auto flex w-full max-w-3xl min-w-0 items-baseline justify-between gap-4 border-neutral-200 pb-3 text-sm text-neutral-500 dark:text-neutral-400">
+        <div className="min-w-0 overflow-hidden">
+          <span className="truncate">{title}</span>
+          <span className="mx-2">⋅</span>
+          <span className="truncate">{author}</span>
+        </div>
+        <span className="shrink-0 [font-variant-numeric:tabular-nums]">
+          {pageNumber} / {pageTotal}
+        </span>
+      </header>
+
+      <div className="mx-auto flex min-h-0 w-full max-w-3xl min-w-0 flex-col overflow-hidden py-5 sm:py-8">
         <textarea
           className="flex-1 resize-none bg-transparent text-lg leading-relaxed outline-none placeholder:text-neutral-400 dark:placeholder:text-neutral-600"
           onChange={handleChange}
@@ -3482,7 +3641,7 @@ function NotebookEditScreen({
           value={text}
         />
       </div>
-    </div>
+    </article>
   );
 }
 
