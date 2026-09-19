@@ -146,35 +146,60 @@ export function addNotebookBox(
 }
 
 // Places a dictionary entry sent from a book as a new box, stacked below
-// the last one on the notebook's final page, starting a new page when the
-// next slot would fall off the bottom.
+// the last one on the page the notebook is currently showing - that's the
+// page the reader is looking at, so it's where they expect the entry to
+// land. A full page keeps its entries rather than pushing them onto a page
+// that isn't in view; the slot is just clamped to the bottom.
 export function appendNotebookEntry(
   doc: NotebookDoc,
-  text: string
+  text: string,
+  pageId?: string
 ): NotebookDoc {
   const pages = doc.pages.length > 0 ? doc.pages : [createNotebookPage()];
-  const lastPage = pages[pages.length - 1];
-  const lowestY = lastPage.boxes.reduce(
+  const targetIndex = Math.max(
+    0,
+    pageId ? pages.findIndex((page) => page.id === pageId) : pages.length - 1
+  );
+  const targetPage = pages[targetIndex] ?? pages[pages.length - 1];
+  const lowestY = targetPage.boxes.reduce(
     (lowest, box) => Math.max(lowest, box.y),
     -ENTRY_STEP_Y
   );
-  const nextY = lowestY + ENTRY_STEP_Y;
-
-  if (nextY > MAX_BOX_Y) {
-    return {
-      pages: [
-        ...pages,
-        createNotebookPage([createNotebookBox(0.06, 0.06, 0.5, text)])
-      ]
-    };
-  }
+  const nextY = clamp(lowestY + ENTRY_STEP_Y, 0, MAX_BOX_Y);
 
   return {
     pages: pages.map((page, index) =>
-      index === pages.length - 1
+      index === targetIndex
         ? {
             ...page,
             boxes: [...page.boxes, createNotebookBox(0.06, nextY, 0.5, text)]
+          }
+        : page
+    )
+  };
+}
+
+export function moveNotebookBox(
+  doc: NotebookDoc,
+  pageId: string,
+  boxId: string,
+  x: number,
+  y: number
+): NotebookDoc {
+  return {
+    pages: doc.pages.map((page) =>
+      page.id === pageId
+        ? {
+            ...page,
+            boxes: page.boxes.map((box) =>
+              box.id === boxId
+                ? {
+                    ...box,
+                    x: clamp(x, 0, 1 - box.width),
+                    y: clamp(y, 0, MAX_BOX_Y)
+                  }
+                : box
+            )
           }
         : page
     )

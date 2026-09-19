@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent, MouseEvent, PointerEvent } from "react";
 import {
   BookOpen,
+  GripVertical,
   NotebookPen,
   Pencil,
   RefreshCw,
@@ -35,6 +36,7 @@ import {
   appendNotebookEntry,
   createEmptyNotebookDoc,
   createNotebookBox,
+  moveNotebookBox,
   notebookDocToParagraphs,
   parseNotebookContent,
   serializeNotebookDoc,
@@ -1151,9 +1153,24 @@ function App() {
     [withNotebook]
   );
 
+  // Lands on the page the notebook is currently showing, not its last one:
+  // the notebook sits in the row below the book, and an entry should turn
+  // up on the page the reader can actually see there.
   const sendToNotebook = useCallback(
     (notebookId: string, entry: string) => {
-      withNotebook(notebookId, (doc) => appendNotebookEntry(doc, entry));
+      const pageId = activePageByRowId[notebookId];
+      withNotebook(notebookId, (doc) =>
+        appendNotebookEntry(doc, entry, pageId)
+      );
+    },
+    [activePageByRowId, withNotebook]
+  );
+
+  const moveNotebookBoxTo = useCallback(
+    (bookId: string, pageId: string, boxId: string, x: number, y: number) => {
+      withNotebook(bookId, (doc) =>
+        moveNotebookBox(doc, pageId, boxId, x, y)
+      );
     },
     [withNotebook]
   );
@@ -1608,6 +1625,7 @@ function App() {
         notebookModeByBookId,
         onAddNotebookBox: addNotebookBoxAt,
         onCreateNotebook: createNotebook,
+        onMoveNotebookBox: moveNotebookBoxTo,
         onSaveNotebookBoxText: saveNotebookBoxText,
         onSendToNotebook: sendLookupToNotebook,
         onToggleNotebookMode: toggleNotebookMode,
@@ -1644,6 +1662,7 @@ function App() {
       lastSpanishVoiceRegion,
       addNotebookBoxAt,
       loadedBooks,
+      moveNotebookBoxTo,
       notebookDocsById,
       notebookModeByBookId,
       openBookIds,
@@ -1787,6 +1806,7 @@ function createArticleRows({
   notebookModeByBookId,
   onAddNotebookBox,
   onCreateNotebook,
+  onMoveNotebookBox,
   onSaveNotebookBoxText,
   onSendToNotebook,
   onToggleNotebookMode,
@@ -1827,6 +1847,13 @@ function createArticleRows({
     y: number
   ) => string;
   onCreateNotebook: () => void;
+  onMoveNotebookBox: (
+    bookId: string,
+    pageId: string,
+    boxId: string,
+    x: number,
+    y: number
+  ) => void;
   onSaveNotebookBoxText: (
     bookId: string,
     pageId: string,
@@ -1932,6 +1959,7 @@ function createArticleRows({
           notebookDoc: notebookDocsById[book.id],
           notebookMode: notebookModeByBookId[book.id],
           onAddNotebookBox,
+          onMoveNotebookBox,
           onSaveNotebookBoxText,
           onSendToNotebook,
           onToggleNotebookMode,
@@ -1955,6 +1983,7 @@ function createBookRow({
   notebookDoc,
   notebookMode,
   onAddNotebookBox,
+  onMoveNotebookBox,
   onSaveNotebookBoxText,
   onSendToNotebook,
   onToggleNotebookMode,
@@ -1978,6 +2007,13 @@ function createBookRow({
     x: number,
     y: number
   ) => string;
+  onMoveNotebookBox?: (
+    bookId: string,
+    pageId: string,
+    boxId: string,
+    x: number,
+    y: number
+  ) => void;
   onSaveNotebookBoxText?: (
     bookId: string,
     pageId: string,
@@ -2039,6 +2075,9 @@ function createBookRow({
             languageCode={metadata.languageCode}
             mode={notebookMode ?? "write"}
             onAddBox={(x, y) => onAddNotebookBox?.(book.id, page.id, x, y)}
+            onMoveBox={(boxId, x, y) =>
+              onMoveNotebookBox?.(book.id, page.id, boxId, x, y)
+            }
             onSaveBoxText={(boxId, text) =>
               onSaveNotebookBoxText?.(book.id, page.id, boxId, text)
             }
@@ -3168,6 +3207,7 @@ function NotebookPageScreen({
   languageCode,
   mode,
   onAddBox,
+  onMoveBox,
   onSaveBoxText,
   onSendToNotebook,
   onToggleMode,
@@ -3186,6 +3226,7 @@ function NotebookPageScreen({
   languageCode: string;
   mode: "write" | "lookup";
   onAddBox: (x: number, y: number) => string | undefined;
+  onMoveBox: (boxId: string, x: number, y: number) => void;
   onSaveBoxText: (boxId: string, text: string) => void;
   onSendToNotebook?: (entry: string) => void;
   onToggleMode: () => void;
@@ -3198,8 +3239,14 @@ function NotebookPageScreen({
   const spokenLanguageCode =
     languageCode === "es" ? spanishVoiceRegion : languageCode;
   const [focusedBoxId, setFocusedBoxId] = useState<string | null>(null);
+  const [drag, setDrag] = useState<{
+    boxId: string;
+    x: number;
+    y: number;
+  } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const tapStart = useRef<{ x: number; y: number } | null>(null);
+  const dragOffset = useRef({ x: 0, y: 0 });
   const boxTexts = useMemo(() => page.boxes.map((box) => box.text), [page.boxes]);
   const { popups, renderBlock } = useTextLookup({
     autoPlayWordAudio,
@@ -3239,6 +3286,49 @@ function NotebookPageScreen({
     );
 
     if (boxId) setFocusedBoxId(boxId);
+  };
+
+  // Moving a box is deliberately confined to its handle: a drag anywhere
+  // else on the page is how you turn the page, so the handle stops the
+  // gesture from reaching SwipeWorkspace at all rather than trying to tell
+  // the two apart after the fact.
+  const handleDragStart = (
+    event: PointerEvent<HTMLButtonElement>,
+    box: NotebookBox
+  ) => {
+    if (!canvasRef.current) return;
+
+    event.stopPropagation();
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    dragOffset.current = {
+      x: event.clientX - (rect.left + box.x * rect.width),
+      y: event.clientY - (rect.top + box.y * rect.height)
+    };
+    setDrag({ boxId: box.id, x: box.x, y: box.y });
+  };
+
+  const handleDragMove = (event: PointerEvent<HTMLButtonElement>) => {
+    if (!drag || !canvasRef.current) return;
+
+    event.stopPropagation();
+
+    const rect = canvasRef.current.getBoundingClientRect();
+    setDrag({
+      boxId: drag.boxId,
+      x: (event.clientX - dragOffset.current.x - rect.left) / rect.width,
+      y: (event.clientY - dragOffset.current.y - rect.top) / rect.height
+    });
+  };
+
+  const handleDragEnd = (event: PointerEvent<HTMLButtonElement>) => {
+    if (!drag) return;
+
+    event.stopPropagation();
+    onMoveBox(drag.boxId, drag.x, drag.y);
+    setDrag(null);
   };
 
   return (
@@ -3284,29 +3374,46 @@ function NotebookPageScreen({
             </p>
           ) : null}
 
-          {page.boxes.map((box, blockIndex) => (
-            <div
-              className="absolute"
-              key={box.id}
-              style={{
-                left: `${box.x * 100}%`,
-                top: `${box.y * 100}%`,
-                width: `${box.width * 100}%`
-              }}
-            >
-              {mode === "write" ? (
-                <NotebookBoxEditor
-                  box={box}
-                  onSave={(text) => onSaveBoxText(box.id, text)}
-                  shouldFocus={box.id === focusedBoxId}
-                />
-              ) : (
-                <p className="whitespace-pre-wrap text-base leading-relaxed">
-                  {renderBlock(blockIndex)}
-                </p>
-              )}
-            </div>
-          ))}
+          {page.boxes.map((box, blockIndex) => {
+            const dragged = drag?.boxId === box.id ? drag : null;
+
+            return (
+              <div
+                className="absolute"
+                key={box.id}
+                style={{
+                  left: `${(dragged?.x ?? box.x) * 100}%`,
+                  top: `${(dragged?.y ?? box.y) * 100}%`,
+                  width: `${box.width * 100}%`
+                }}
+              >
+                {mode === "write" ? (
+                  <>
+                    <button
+                      aria-label="Move this box"
+                      className="absolute right-0 top-0 z-10 cursor-grab touch-none text-neutral-300 dark:text-neutral-600"
+                      onPointerCancel={handleDragEnd}
+                      onPointerDown={(event) => handleDragStart(event, box)}
+                      onPointerMove={handleDragMove}
+                      onPointerUp={handleDragEnd}
+                      type="button"
+                    >
+                      <GripVertical className="h-4 w-4" />
+                    </button>
+                    <NotebookBoxEditor
+                      box={box}
+                      onSave={(text) => onSaveBoxText(box.id, text)}
+                      shouldFocus={box.id === focusedBoxId}
+                    />
+                  </>
+                ) : (
+                  <p className="whitespace-pre-wrap text-base leading-relaxed">
+                    {renderBlock(blockIndex)}
+                  </p>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -3389,7 +3496,7 @@ function NotebookBoxEditor({
 
   return (
     <textarea
-      className="w-full resize-none overflow-hidden bg-transparent text-base leading-relaxed outline-none placeholder:text-neutral-300 dark:placeholder:text-neutral-600"
+      className="w-full resize-none overflow-hidden bg-transparent pr-5 text-base leading-relaxed outline-none placeholder:text-neutral-300 dark:placeholder:text-neutral-600"
       onChange={handleChange}
       placeholder="…"
       ref={textareaRef}
