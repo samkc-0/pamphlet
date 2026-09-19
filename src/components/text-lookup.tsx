@@ -10,6 +10,7 @@ import {
   type WordLookupState
 } from "@/components/word-lookup-popup";
 import { lookupWord, translateText } from "@/lib/dictionary";
+import { holdFillStyle, LONG_PRESS_MS } from "@/lib/hold";
 import {
   loadPinnedSentences,
   setSentencePinned
@@ -23,8 +24,6 @@ import {
   type SyncUser
 } from "@/lib/sync-client";
 import { normalizeWord, tokenizeParagraphWithOffsets } from "@/lib/tokenize";
-
-const LONG_PRESS_MS = 550;
 
 // Tap-a-word-to-look-it-up, long-press-to-select-a-sentence, and pinning,
 // over an ordered list of text blocks. Deliberately knows nothing about how
@@ -65,6 +64,10 @@ export function useTextLookup({
     blockIndex: number;
     maxIndex: number;
     minIndex: number;
+  } | null>(null);
+  const [heldToken, setHeldToken] = useState<{
+    blockIndex: number;
+    tokenIndex: number;
   } | null>(null);
   const isSelecting = useRef(false);
   const selectionAnchorIndex = useRef(0);
@@ -135,6 +138,7 @@ export function useTextLookup({
       window.clearTimeout(sentenceLongPressTimer.current);
       sentenceLongPressTimer.current = null;
     }
+    setHeldToken(null);
   };
 
   const startSelectionLongPress = (
@@ -148,11 +152,13 @@ export function useTextLookup({
 
     clearSentenceLongPress();
     suppressNextWordClick.current = false;
+    setHeldToken({ blockIndex, tokenIndex });
     sentenceLongPressTimer.current = window.setTimeout(() => {
       sentenceLongPressTimer.current = null;
       suppressNextWordClick.current = true;
       isSelecting.current = true;
       selectionAnchorIndex.current = tokenIndex;
+      setHeldToken(null);
       setSelectionRange({ blockIndex, maxIndex: tokenIndex, minIndex: tokenIndex });
     }, LONG_PRESS_MS);
   };
@@ -421,6 +427,15 @@ export function useTextLookup({
           classNames.push("sentence-highlight");
         }
 
+        // The tint rises behind the word over the hold, landing exactly on
+        // the selection highlight the hold produces.
+        const isHeld =
+          heldToken?.blockIndex === blockIndex &&
+          heldToken?.tokenIndex === tokenIndex;
+        if (isHeld) {
+          classNames.push("hold-fill-bg");
+        }
+
         return (
           <button
             className={classNames.join(" ")}
@@ -441,6 +456,7 @@ export function useTextLookup({
               handleSelectionPointerMove(event, blockIndex)
             }
             onPointerUp={handleSelectionPointerUp}
+            style={isHeld ? holdFillStyle : undefined}
             type="button"
           >
             {token.value}

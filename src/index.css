@@ -314,6 +314,51 @@
     }
   }
 
+  /* Fills a hold-to-confirm icon from the bottom up. Its duration is set
+     inline from the same constant as the hold timer, so reaching full is
+     exactly when the action fires. */
+  .hold-fill {
+    animation: hold-fill linear forwards;
+  }
+
+  /* The same hold feedback for a run of text rather than an icon: the tint
+     rises behind it. On a reader word it lands exactly on the selection
+     highlight the hold is about to produce. */
+  .hold-fill-bg {
+    animation: hold-fill-bg linear forwards;
+    background-image: linear-gradient(
+      rgba(23, 23, 23, 0.1),
+      rgba(23, 23, 23, 0.1)
+    );
+    background-position: bottom;
+    background-repeat: no-repeat;
+  }
+
+  .dark .hold-fill-bg {
+    background-image: linear-gradient(
+      rgba(245, 245, 245, 0.15),
+      rgba(245, 245, 245, 0.15)
+    );
+  }
+
+  @keyframes hold-fill-bg {
+    from {
+      background-size: 100% 0%;
+    }
+    to {
+      background-size: 100% 100%;
+    }
+  }
+
+  @keyframes hold-fill {
+    from {
+      clip-path: inset(100% 0 0 0);
+    }
+    to {
+      clip-path: inset(0 0 0 0);
+    }
+  }
+
   @keyframes glass-pop-in {
     from {
       opacity: 0;

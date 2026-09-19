@@ -3,7 +3,7 @@ import type { ChangeEvent, FormEvent, MouseEvent, PointerEvent } from "react";
 import {
   BookOpen,
   GripVertical,
-  NotebookPen,
+  X,
   Pencil,
   RefreshCw,
   Settings,
@@ -21,6 +21,7 @@ import {
   readStoredAppState,
   writeStoredAppState
 } from "@/lib/app-state-store";
+import { holdFillStyle, LONG_PRESS_MS } from "@/lib/hold";
 import {
   deleteStoredBook,
   loadBookCatalog,
@@ -38,6 +39,7 @@ import {
   createNotebookBox,
   clampBoxX,
   moveNotebookBox,
+  removeNotebookBox,
   notebookDocToParagraphs,
   parseNotebookContent,
   serializeNotebookDoc,
@@ -224,7 +226,6 @@ type PersistedAppState = {
 const DEMO_BOOK_FILE_NAME = "demo.epub";
 const DEMO_BOOK_PATH = `/books/${DEMO_BOOK_FILE_NAME}`;
 const LIBRARY_BOOKS_PER_PAGE = 5;
-const LONG_PRESS_MS = 550;
 const MAX_OPEN_BOOKS = 5;
 const SYNC_POLL_INTERVAL_MS = 30_000;
 const LANGUAGE_CHOICES = [
@@ -1176,6 +1177,13 @@ function App() {
     [withNotebook]
   );
 
+  const deleteNotebookBox = useCallback(
+    (bookId: string, pageId: string, boxId: string) => {
+      withNotebook(bookId, (doc) => removeNotebookBox(doc, pageId, boxId));
+    },
+    [withNotebook]
+  );
+
   // "Send to notebook" targets whichever notebook is currently open; if more
   // than one is open, the first (an intentional phase-1 simplification -
   // picking among several open notebooks would need its own picker UI).
@@ -1626,6 +1634,7 @@ function App() {
         notebookModeByBookId,
         onAddNotebookBox: addNotebookBoxAt,
         onCreateNotebook: createNotebook,
+        onDeleteNotebookBox: deleteNotebookBox,
         onMoveNotebookBox: moveNotebookBoxTo,
         onSaveNotebookBoxText: saveNotebookBoxText,
         onSendToNotebook: sendLookupToNotebook,
@@ -1662,6 +1671,7 @@ function App() {
       lastDictionaryLanguageCode,
       lastSpanishVoiceRegion,
       addNotebookBoxAt,
+      deleteNotebookBox,
       loadedBooks,
       moveNotebookBoxTo,
       notebookDocsById,
@@ -1807,6 +1817,7 @@ function createArticleRows({
   notebookModeByBookId,
   onAddNotebookBox,
   onCreateNotebook,
+  onDeleteNotebookBox,
   onMoveNotebookBox,
   onSaveNotebookBoxText,
   onSendToNotebook,
@@ -1848,6 +1859,11 @@ function createArticleRows({
     y: number
   ) => string;
   onCreateNotebook: () => void;
+  onDeleteNotebookBox: (
+    bookId: string,
+    pageId: string,
+    boxId: string
+  ) => void;
   onMoveNotebookBox: (
     bookId: string,
     pageId: string,
@@ -1960,6 +1976,7 @@ function createArticleRows({
           notebookDoc: notebookDocsById[book.id],
           notebookMode: notebookModeByBookId[book.id],
           onAddNotebookBox,
+          onDeleteNotebookBox,
           onMoveNotebookBox,
           onSaveNotebookBoxText,
           onSendToNotebook,
@@ -1984,6 +2001,7 @@ function createBookRow({
   notebookDoc,
   notebookMode,
   onAddNotebookBox,
+  onDeleteNotebookBox,
   onMoveNotebookBox,
   onSaveNotebookBoxText,
   onSendToNotebook,
@@ -2008,6 +2026,11 @@ function createBookRow({
     x: number,
     y: number
   ) => string;
+  onDeleteNotebookBox?: (
+    bookId: string,
+    pageId: string,
+    boxId: string
+  ) => void;
   onMoveNotebookBox?: (
     bookId: string,
     pageId: string,
@@ -2076,6 +2099,9 @@ function createBookRow({
             languageCode={metadata.languageCode}
             mode={notebookMode ?? "write"}
             onAddBox={(x, y) => onAddNotebookBox?.(book.id, page.id, x, y)}
+            onDeleteBox={(boxId) =>
+              onDeleteNotebookBox?.(book.id, page.id, boxId)
+            }
             onMoveBox={(boxId, x, y) =>
               onMoveNotebookBox?.(book.id, page.id, boxId, x, y)
             }
@@ -2703,12 +2729,14 @@ function SpanishRegionReel({
 
   const longPressTimer = useRef<number | null>(null);
   const longPressFired = useRef(false);
+  const [isHolding, setIsHolding] = useState(false);
 
   const clearLongPressTimer = () => {
     if (longPressTimer.current) {
       window.clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
     }
+    setIsHolding(false);
   };
 
   const handlePointerDown = (event: PointerEvent<HTMLButtonElement>) => {
@@ -2716,9 +2744,11 @@ function SpanishRegionReel({
 
     longPressFired.current = false;
     clearLongPressTimer();
+    setIsHolding(true);
     longPressTimer.current = window.setTimeout(() => {
       longPressFired.current = true;
       longPressTimer.current = null;
+      setIsHolding(false);
       onLongPress();
     }, LONG_PRESS_MS);
   };
@@ -2751,8 +2781,11 @@ function SpanishRegionReel({
         isSelected
           ? "border-neutral-950 bg-neutral-950/5 dark:border-neutral-100 dark:bg-neutral-100/10"
           : "border-neutral-300 dark:border-neutral-700"
+      } ${
+        isHolding ? "hold-fill-bg" : ""
       } focus-visible:border-neutral-950 dark:focus-visible:border-neutral-100`}
       onClick={handleClick}
+      style={isHolding ? holdFillStyle : undefined}
       onPointerCancel={clearLongPressTimer}
       onPointerDown={handlePointerDown}
       onPointerLeave={clearLongPressTimer}
@@ -2860,6 +2893,7 @@ function LibraryScreen({
     pageTotal > 1 ? ((pageNumber - 1) / (pageTotal - 1)) * 100 : 0;
   const longPressTimer = useRef<number | null>(null);
   const suppressNextToggle = useRef(false);
+  const [holdingBookId, setHoldingBookId] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -2874,6 +2908,7 @@ function LibraryScreen({
       window.clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
     }
+    setHoldingBookId(null);
   };
 
   const startLongPress = (
@@ -2884,8 +2919,10 @@ function LibraryScreen({
 
     clearLongPress();
     suppressNextToggle.current = false;
+    setHoldingBookId(bookId);
     longPressTimer.current = window.setTimeout(() => {
       suppressNextToggle.current = true;
+      setHoldingBookId(null);
       openBookSettings(bookId);
       longPressTimer.current = null;
     }, LONG_PRESS_MS);
@@ -2983,13 +3020,25 @@ function LibraryScreen({
                     onPointerLeave={clearLongPress}
                     onPointerUp={clearLongPress}
                   >
-                    {book.kind === "notebook" ? (
-                      <NotebookPen
-                        aria-hidden="true"
-                        className="mr-1.5 inline-block h-4 w-4 -translate-y-0.5 text-neutral-500 dark:text-neutral-400"
-                      />
-                    ) : null}
-                    {metadata.title}
+                    <span aria-hidden="true" className="mr-1.5">
+                      {book.kind === "notebook"
+                        ? isOpen
+                          ? "📝"
+                          : "📓"
+                        : isOpen
+                          ? "📖"
+                          : "📘"}
+                    </span>
+                    <span
+                      className={
+                        holdingBookId === book.id ? "hold-fill-bg" : undefined
+                      }
+                      style={
+                        holdingBookId === book.id ? holdFillStyle : undefined
+                      }
+                    >
+                      {metadata.title}
+                    </span>
                     <span
                       aria-hidden={!isOpen}
                       className={`ml-2 inline-block w-8 text-left text-neutral-500 dark:text-neutral-400 ${
@@ -3208,6 +3257,7 @@ function NotebookPageScreen({
   languageCode,
   mode,
   onAddBox,
+  onDeleteBox,
   onMoveBox,
   onSaveBoxText,
   onSendToNotebook,
@@ -3227,6 +3277,7 @@ function NotebookPageScreen({
   languageCode: string;
   mode: "write" | "lookup";
   onAddBox: (x: number, y: number) => string | undefined;
+  onDeleteBox: (boxId: string) => void;
   onMoveBox: (boxId: string, x: number, y: number) => void;
   onSaveBoxText: (boxId: string, text: string) => void;
   onSendToNotebook?: (entry: string) => void;
@@ -3247,8 +3298,10 @@ function NotebookPageScreen({
   } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const tapStart = useRef<{ x: number; y: number } | null>(null);
+  const [deletingBoxId, setDeletingBoxId] = useState<string | null>(null);
   const dragOffset = useRef({ x: 0, y: 0 });
   const dragBounds = useRef({ maxY: 1, width: 0 });
+  const deleteHoldTimer = useRef<number | null>(null);
   const boxTexts = useMemo(() => page.boxes.map((box) => box.text), [page.boxes]);
   const { popups, renderBlock } = useTextLookup({
     autoPlayWordAudio,
@@ -3319,6 +3372,41 @@ function NotebookPageScreen({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [mode, onToggleMode]);
+
+  // Deleting a note takes a deliberate hold rather than a tap: there's no
+  // undo, and the button sits in the corner of a box you're often reaching
+  // into anyway. The icon turns red while the hold is counting down, so an
+  // accidental press shows what it's about to do and can be released.
+  const startDeleteHold = (
+    event: PointerEvent<HTMLButtonElement>,
+    boxId: string
+  ) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+
+    event.stopPropagation();
+    setDeletingBoxId(boxId);
+    deleteHoldTimer.current = window.setTimeout(() => {
+      deleteHoldTimer.current = null;
+      setDeletingBoxId(null);
+      onDeleteBox(boxId);
+    }, LONG_PRESS_MS);
+  };
+
+  const cancelDeleteHold = () => {
+    if (deleteHoldTimer.current) {
+      window.clearTimeout(deleteHoldTimer.current);
+      deleteHoldTimer.current = null;
+    }
+    setDeletingBoxId(null);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (deleteHoldTimer.current) {
+        window.clearTimeout(deleteHoldTimer.current);
+      }
+    };
+  }, []);
 
   // Moving a box is deliberately confined to its handle: a drag anywhere
   // else on the page is how you turn the page, so the handle stops the
@@ -3435,9 +3523,13 @@ function NotebookPageScreen({
               >
                 {mode === "write" ? (
                   <div className="group relative rounded border border-transparent hover:border-neutral-200 dark:hover:border-neutral-700">
+                    {/* Sized to one line of the box's text (text-base /
+                        leading-relaxed) and centred in the gutter pl-5
+                        leaves, so the grip lines up with the first line of
+                        text rather than with the top of the box. */}
                     <button
                       aria-label="Move this box"
-                      className="absolute left-0 top-0 z-10 cursor-grab touch-none text-neutral-300 dark:text-neutral-600"
+                      className="absolute left-0 top-0 z-10 flex h-[1.625rem] w-5 cursor-grab touch-none items-center justify-center text-neutral-300 dark:text-neutral-600"
                       onPointerCancel={handleDragEnd}
                       onPointerDown={(event) => handleDragStart(event, box)}
                       onPointerMove={handleDragMove}
@@ -3445,6 +3537,25 @@ function NotebookPageScreen({
                       type="button"
                     >
                       <GripVertical className="h-4 w-4" />
+                    </button>
+                    <button
+                      aria-label="Hold to delete this note"
+                      className="absolute right-0 top-0 z-10 flex h-[1.625rem] w-5 touch-none items-center justify-center text-neutral-300 dark:text-neutral-600"
+                      onPointerCancel={cancelDeleteHold}
+                      onPointerDown={(event) => startDeleteHold(event, box.id)}
+                      onPointerLeave={cancelDeleteHold}
+                      onPointerUp={cancelDeleteHold}
+                      type="button"
+                    >
+                      <span className="relative inline-flex">
+                        <X className="h-3.5 w-3.5" />
+                        {deletingBoxId === box.id ? (
+                          <X
+                            className="hold-fill absolute inset-0 h-3.5 w-3.5 text-red-500"
+                            style={holdFillStyle}
+                          />
+                        ) : null}
+                      </span>
                     </button>
                     <NotebookBoxEditor
                       box={box}
@@ -3542,7 +3653,7 @@ function NotebookBoxEditor({
 
   return (
     <textarea
-      className="w-full resize-none overflow-hidden bg-transparent pl-5 text-base leading-relaxed outline-none placeholder:text-neutral-300 dark:placeholder:text-neutral-600"
+      className="w-full resize-none overflow-hidden bg-transparent px-5 text-base leading-relaxed outline-none placeholder:text-neutral-300 dark:placeholder:text-neutral-600"
       onChange={handleChange}
       placeholder="…"
       ref={textareaRef}

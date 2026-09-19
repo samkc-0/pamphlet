@@ -179,6 +179,20 @@ export function appendNotebookEntry(
   };
 }
 
+export function removeNotebookBox(
+  doc: NotebookDoc,
+  pageId: string,
+  boxId: string
+): NotebookDoc {
+  return {
+    pages: doc.pages.map((page) =>
+      page.id === pageId
+        ? { ...page, boxes: page.boxes.filter((box) => box.id !== boxId) }
+        : page
+    )
+  };
+}
+
 // Keeps a box's left edge on the page. The vertical limit depends on how
 // tall the box has grown, which only the rendered page knows, so the drag
 // works that out and this just guards the range.
