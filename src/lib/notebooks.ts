@@ -156,10 +156,27 @@ export function appendNotebookEntry(
   pageId?: string
 ): NotebookDoc {
   const pages = doc.pages.length > 0 ? doc.pages : [createNotebookPage()];
-  const targetIndex = Math.max(
-    0,
-    pageId ? pages.findIndex((page) => page.id === pageId) : pages.length - 1
-  );
+  const targetIndex = pageId
+    ? pages.findIndex((page) => page.id === pageId)
+    : pages.length - 1;
+
+  // The page on screen may be the blank one always shown at the end, which
+  // isn't part of the document until something lands on it. Sending an
+  // entry there creates it, the same way tapping to place a box does -
+  // without this the entry falls back to the first page, which is the last
+  // place the reader is looking.
+  if (targetIndex === -1) {
+    return {
+      pages: [
+        ...pages,
+        {
+          boxes: [createNotebookBox(0.06, 0.06, 0.5, text)],
+          id: pageId as string
+        }
+      ]
+    };
+  }
+
   const targetPage = pages[targetIndex] ?? pages[pages.length - 1];
   const lowestY = targetPage.boxes.reduce(
     (lowest, box) => Math.max(lowest, box.y),
