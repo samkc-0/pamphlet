@@ -25,6 +25,9 @@ import {
 } from "@/lib/sync-client";
 import { normalizeWord, tokenizeParagraphWithOffsets } from "@/lib/tokenize";
 
+// Movement that clearly belongs to a page turn rather than a long press.
+const SELECTION_CANCEL_PX = 8;
+
 // Tap-a-word-to-look-it-up, long-press-to-select-a-sentence, and pinning,
 // over an ordered list of text blocks. Deliberately knows nothing about how
 // those blocks are laid out: a book renders them as flowing paragraphs, a
@@ -72,6 +75,7 @@ export function useTextLookup({
   const isSelecting = useRef(false);
   const selectionAnchorIndex = useRef(0);
   const sentenceLongPressTimer = useRef<number | null>(null);
+  const longPressOrigin = useRef<{ x: number; y: number } | null>(null);
   const suppressNextWordClick = useRef(false);
 
   const blockTokens = useMemo(
@@ -152,6 +156,7 @@ export function useTextLookup({
 
     clearSentenceLongPress();
     suppressNextWordClick.current = false;
+    longPressOrigin.current = { x: event.clientX, y: event.clientY };
     setHeldToken({ blockIndex, tokenIndex });
     sentenceLongPressTimer.current = window.setTimeout(() => {
       sentenceLongPressTimer.current = null;
@@ -167,7 +172,25 @@ export function useTextLookup({
     event: PointerEvent<HTMLButtonElement>,
     blockIndex: number
   ) => {
-    if (!isSelecting.current) return;
+    // Moving far enough to be turning the page is not a long press. Without
+    // this a slow drag across the text would both move the page and arm a
+    // sentence selection, and you'd land on the next page mid-selection.
+    if (!isSelecting.current) {
+      const held = heldToken;
+      if (held && sentenceLongPressTimer.current) {
+        const start = longPressOrigin.current;
+        if (
+          start &&
+          Math.max(
+            Math.abs(event.clientX - start.x),
+            Math.abs(event.clientY - start.y)
+          ) > SELECTION_CANCEL_PX
+        ) {
+          clearSentenceLongPress();
+        }
+      }
+      return;
+    }
 
     event.stopPropagation();
 

@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   type ReactNode,
   useCallback,
   useEffect,
@@ -6,24 +7,29 @@ import {
   useRef,
   useState
 } from "react";
+import { flushSync } from "react-dom";
 
-const SWIPE_THRESHOLD = 48;
-const TRANSITION_MS = 300;
+// Movement before a drag takes over. Higher when the finger went down on a
+// text field, so placing a cursor in a notebook box never nudges the page.
+const DRAG_START_PX = 8;
+const TEXT_DRAG_START_PX = 16;
+// Travel past a quarter of the screen commits, but so does a flick that
+// never gets that far - which is the part a fixed distance threshold alone
+// gets wrong.
+const COMMIT_FRACTION = 0.25;
+const FLICK_VELOCITY_PX_PER_MS = 0.5;
+const VELOCITY_WINDOW_MS = 60;
+// Two samples a fraction of a millisecond apart divide into an enormous
+// speed, and high-rate touch digitizers deliver exactly that - so a window
+// this short is treated as no reading rather than as a flick.
+const MIN_VELOCITY_WINDOW_MS = 8;
+const SETTLE_MS = 240;
+// Dragging towards an edge that has nowhere to go still moves, just barely,
+// so the end of a book reads as an end rather than as dead input.
+const EDGE_RESISTANCE = 0.35;
 
+type Axis = "x" | "y";
 type Direction = "left" | "right" | "up" | "down";
-
-type Point = {
-  interactive: boolean;
-  x: number;
-  y: number;
-};
-
-type ScreenTransition = {
-  direction: Direction;
-  from: ReactNode;
-  key: number;
-  to: ReactNode;
-};
 
 export type WorkspacePage = {
   id: string;
@@ -58,6 +64,21 @@ type SwipeWorkspaceProps = {
   swipe?: boolean;
 };
 
+type Gesture = {
+  axis: Axis | null;
+  interactive: boolean;
+  samples: Array<{ position: number; time: number }>;
+  settling: boolean;
+  startThreshold: number;
+  startX: number;
+  startY: number;
+};
+
+// The workspace is a track that is always somewhere: at rest it sits at 0
+// with a single screen mounted, and during a gesture it holds the screen
+// either side along the axis being dragged and follows the pointer. Turning
+// a page is that offset being carried to the next stop rather than an event
+// firing at the end of a gesture.
 export function SwipeWorkspace({
   animations = true,
   initialPageByRowId,
@@ -75,12 +96,17 @@ export function SwipeWorkspace({
   const [activePageByRowId, setActivePageByRowId] = useState<
     Record<string, string>
   >(() => getInitialPageMap(rows, initialPageByRowId));
-  const [transition, setTransition] = useState<ScreenTransition | null>(null);
-  const pointerStart = useRef<Point | null>(null);
+  // Non-null only while a gesture (or its settle) is in flight - that is
+  // what mounts the neighbours, so at rest this stays a single screen.
+  const [dragAxis, setDragAxis] = useState<Axis | null>(null);
+
+  const trackRef = useRef<HTMLDivElement>(null);
+  const gesture = useRef<Gesture | null>(null);
+  const offset = useRef(0);
+  const pendingNavigation = useRef<{ axis: Axis; towards: 1 | -1 } | null>(null);
   const processedPageJumpSerial = useRef<number | null>(null);
   const processedRowJumpSerial = useRef<number | null>(null);
   const suppressClick = useRef(false);
-  const transitionTimer = useRef<number | null>(null);
 
   const rowIndex = Math.max(
     0,
@@ -95,6 +121,51 @@ export function SwipeWorkspace({
     activeRow?.pages.findIndex((page) => page.id === activePageId) ?? 0
   );
   const activePage = activeRow?.pages[pageIndex];
+
+  // Whether there is anywhere to go, taken from the rows themselves rather
+  // than from the mounted neighbours. The neighbours only exist once a
+  // render has happened, so asking them would make the opening moments of
+  // every drag behave like an edge and feel sticky.
+  const canGo = (axis: Axis, towards: 1 | -1) => {
+    if (axis === "x") {
+      return towards === -1
+        ? pageIndex > 0
+        : pageIndex < (activeRow?.pages.length ?? 0) - 1;
+    }
+
+    return towards === -1 ? rowIndex > 0 : rowIndex < rows.length - 1;
+  };
+
+  const pageForRow = useCallback(
+    (row: WorkspaceRow | undefined) => {
+      if (!row) return undefined;
+
+      const savedPageId =
+        activePageByRowId[row.id] ?? row.initialPageId ?? row.pages[0]?.id;
+
+      return row.pages.find((page) => page.id === savedPageId) ?? row.pages[0];
+    },
+    [activePageByRowId]
+  );
+
+  // What sits either side of the active screen along the axis in play.
+  // "next" is always the one revealed by dragging left/up, matching the
+  // directions the keyboard and the old gesture already used.
+  const neighbours = useMemo(() => {
+    if (!dragAxis) return { next: undefined, previous: undefined };
+
+    if (dragAxis === "x") {
+      return {
+        next: activeRow?.pages[pageIndex + 1],
+        previous: activeRow?.pages[pageIndex - 1]
+      };
+    }
+
+    return {
+      next: pageForRow(rows[rowIndex + 1]),
+      previous: pageForRow(rows[rowIndex - 1])
+    };
+  }, [activeRow, dragAxis, pageForRow, pageIndex, rowIndex, rows]);
 
   useEffect(() => {
     onStateChange?.({ activePageByRowId, activeRowId });
@@ -161,83 +232,243 @@ export function SwipeWorkspace({
     setActiveRowId(rowJump.rowId);
   }, [rowJump, rows]);
 
-  const startTransition = useCallback(
-    (to: ReactNode, direction: Direction, commit: () => void) => {
-      if (transition || !activePage) return;
+  const extentFor = (axis: Axis) => {
+    const element = trackRef.current;
+    if (!element) return 1;
 
-      if (!animations) {
-        commit();
-        return;
-      }
+    return axis === "x" ? element.clientWidth : element.clientHeight;
+  };
 
-      setTransition({
-        direction,
-        from: activePage.render(),
-        key: Date.now(),
-        to
+  const paint = () => {
+    const element = trackRef.current;
+    const current = gesture.current;
+    if (!element || !current?.axis) return;
+
+    element.style.transform =
+      current.axis === "x"
+        ? `translate3d(${offset.current}px, 0, 0)`
+        : `translate3d(0, ${offset.current}px, 0)`;
+  };
+
+  // Commits the page or row the offset has been carried to, then puts the
+  // track back at rest in the same synchronous step, so the newly centred
+  // screen is never painted at the old offset.
+  const settleTo = (direction: 1 | -1 | 0, axis: Axis) => {
+    const element = trackRef.current;
+    const target = direction === 0 ? 0 : direction * extentFor(axis);
+
+    // Where the track was carried to, read from the rows rather than from
+    // the mounted neighbours: those only exist once a render has happened,
+    // so a gesture that begins and ends inside one tick would otherwise
+    // move the page under the finger and then quietly fail to commit.
+    const step = direction === 1 ? -1 : 1;
+
+    const finish = () => {
+      flushSync(() => {
+        if (direction !== 0) {
+          if (axis === "x" && activeRow) {
+            const target = activeRow.pages[pageIndex + step];
+            if (target) {
+              setActivePageByRowId((current) => ({
+                ...current,
+                [activeRow.id]: target.id
+              }));
+            }
+          } else if (axis === "y") {
+            const nextRow = rows[rowIndex + step];
+            if (nextRow) setActiveRowId(nextRow.id);
+          }
+        }
+
+        offset.current = 0;
+        gesture.current = null;
+        setDragAxis(null);
       });
 
-      transitionTimer.current = window.setTimeout(() => {
-        commit();
-        setTransition(null);
-        transitionTimer.current = null;
-      }, TRANSITION_MS);
-    },
-    [activePage, animations, transition]
-  );
+      if (element) {
+        element.style.transition = "";
+        element.style.transform = "";
+      }
+    };
 
+    if (!element || !animations || prefersReducedMotion()) {
+      finish();
+      return;
+    }
+
+    let done = false;
+    const complete = () => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(fallback);
+      element.removeEventListener("transitionend", onEnd);
+      finish();
+    };
+    const onEnd = (event: TransitionEvent) => {
+      // transitionend bubbles, so a button's colour transition inside a
+      // page would otherwise cut the settle short.
+      if (event.target !== element || event.propertyName !== "transform") return;
+      complete();
+    };
+    // A transitionend that never arrives (a backgrounded tab, an
+    // interrupted animation) would otherwise leave the gesture mid-settle
+    // and swallow every later touch.
+    const fallback = window.setTimeout(complete, SETTLE_MS + 120);
+
+    element.addEventListener("transitionend", onEnd);
+    // Flush the current transform so the browser has a start value to
+    // animate from rather than jumping straight to the target.
+    void element.offsetWidth;
+    element.style.transition = `transform ${SETTLE_MS}ms cubic-bezier(0.22, 1, 0.36, 1)`;
+    element.style.transform =
+      axis === "x"
+        ? `translate3d(${target}px, 0, 0)`
+        : `translate3d(0, ${target}px, 0)`;
+
+    // A transform that doesn't actually change fires no transitionend.
+    if (offset.current === target) complete();
+  };
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!swipe) return;
+    if (gesture.current?.settling) return;
+
+    gesture.current = {
+      axis: null,
+      interactive: isInteractiveTarget(event.target),
+      samples: [],
+      settling: false,
+      startThreshold: isTextEntryTarget(event.target)
+        ? TEXT_DRAG_START_PX
+        : DRAG_START_PX,
+      startX: event.clientX,
+      startY: event.clientY
+    };
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const current = gesture.current;
+    if (!swipe || !current || current.settling) return;
+
+    const deltaX = event.clientX - current.startX;
+    const deltaY = event.clientY - current.startY;
+
+    // The axis is chosen once, by whichever way the finger committed first,
+    // and then held - otherwise a diagonal drag wobbles between turning a
+    // page and changing row.
+    if (!current.axis) {
+      const travelled = Math.max(Math.abs(deltaX), Math.abs(deltaY));
+      if (travelled < current.startThreshold) return;
+
+      current.axis = Math.abs(deltaX) > Math.abs(deltaY) ? "x" : "y";
+      setDragAxis(current.axis);
+    }
+
+    const raw = current.axis === "x" ? deltaX : deltaY;
+    const canMove = canGo(current.axis, raw > 0 ? -1 : 1);
+    offset.current = canMove ? raw : raw * EDGE_RESISTANCE;
+
+    const now = event.timeStamp || performance.now();
+    current.samples.push({ position: raw, time: now });
+    while (
+      current.samples.length > 2 &&
+      now - current.samples[0].time > VELOCITY_WINDOW_MS
+    ) {
+      current.samples.shift();
+    }
+
+    // Written straight to the node rather than through state: a re-render
+    // per pointermove would drag a few hundred token buttons through React
+    // on every frame of every swipe. Written synchronously rather than in
+    // an animation frame, because pointermove is already delivered at most
+    // once per frame, and a frame callback never arrives at all while the
+    // tab is in the background - which would leave a drag stuck mid-air.
+    paint();
+  };
+
+  const endGesture = () => {
+    const current = gesture.current;
+    if (!current) return;
+
+    if (!current.axis) {
+      gesture.current = null;
+      return;
+    }
+
+    if (current.interactive && Math.abs(offset.current) > 0) {
+      suppressClick.current = true;
+      window.setTimeout(() => {
+        suppressClick.current = false;
+      }, 250);
+    }
+
+    const axis = current.axis;
+    const extent = extentFor(axis);
+    const travelled = offset.current;
+    const velocity = velocityOf(current.samples);
+    const direction = travelled > 0 ? 1 : -1;
+    const reachable = canGo(axis, direction === 1 ? -1 : 1);
+    const carried =
+      Math.abs(travelled) > extent * COMMIT_FRACTION ||
+      (Math.abs(velocity) > FLICK_VELOCITY_PX_PER_MS &&
+        Math.sign(velocity) === direction);
+
+    current.settling = true;
+    settleTo(carried && reachable ? direction : 0, axis);
+  };
+
+  useEffect(() => {
+    const onWindowUp = () => {
+      if (gesture.current && !gesture.current.settling) endGesture();
+    };
+
+    window.addEventListener("pointerup", onWindowUp);
+    window.addEventListener("pointercancel", onWindowUp);
+    return () => {
+      window.removeEventListener("pointerup", onWindowUp);
+      window.removeEventListener("pointercancel", onWindowUp);
+    };
+  });
+
+  // Keyboard navigation carries the track the same way a finger does, so
+  // there is one way a screen moves rather than two that can disagree.
   const navigate = useCallback(
     (direction: Direction) => {
-      if (!activeRow || !activePage || transition) return;
+      if (gesture.current || !activeRow || !activePage) return;
 
-      if (direction === "left" || direction === "right") {
-        const step = direction === "left" ? -1 : 1;
-        const nextPageIndex = clamp(pageIndex + step, 0, activeRow.pages.length - 1);
-        const nextPage = activeRow.pages[nextPageIndex];
+      const axis: Axis = direction === "left" || direction === "right" ? "x" : "y";
+      const towardsNext = direction === "right" || direction === "down";
 
-        if (!nextPage || nextPage.id === activePage.id) return;
+      const target =
+        axis === "x"
+          ? activeRow.pages[pageIndex + (towardsNext ? 1 : -1)]
+          : pageForRow(rows[rowIndex + (towardsNext ? 1 : -1)]);
 
-        startTransition(nextPage.render(), direction, () => {
-          setActivePageByRowId((current) => ({
-            ...current,
-            [activeRow.id]: nextPage.id
-          }));
-        });
-      }
+      if (!target) return;
 
-      if (direction === "up" || direction === "down") {
-        const step = direction === "up" ? -1 : 1;
-        const nextRowIndex = clamp(rowIndex + step, 0, rows.length - 1);
-        const nextRow = rows[nextRowIndex];
-
-        if (!nextRow || nextRow.id === activeRow.id) return;
-
-        const savedPageId =
-          activePageByRowId[nextRow.id] ??
-          nextRow.initialPageId ??
-          nextRow.pages[0]?.id;
-        const nextPage =
-          nextRow.pages.find((page) => page.id === savedPageId) ??
-          nextRow.pages[0];
-
-        if (!nextPage) return;
-
-        startTransition(nextPage.render(), direction, () => {
-          setActiveRowId(nextRow.id);
-        });
-      }
+      gesture.current = {
+        axis,
+        interactive: false,
+        samples: [],
+        settling: true,
+        startThreshold: 0,
+        startX: 0,
+        startY: 0
+      };
+      offset.current = 0;
+      pendingNavigation.current = { axis, towards: towardsNext ? -1 : 1 };
+      setDragAxis(axis);
     },
-    [
-      activePage,
-      activePageByRowId,
-      activeRow,
-      pageIndex,
-      rowIndex,
-      rows,
-      startTransition,
-      transition
-    ]
+    [activePage, activeRow, pageForRow, pageIndex, rowIndex, rows]
   );
+
+  useEffect(() => {
+    const pending = pendingNavigation.current;
+    if (!pending || !dragAxis) return;
+
+    pendingNavigation.current = null;
+    settleTo(pending.towards, pending.axis);
+  });
 
   useEffect(() => {
     if (!keyboard) return;
@@ -259,72 +490,11 @@ export function SwipeWorkspace({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [keyboard, navigate]);
 
-  useEffect(() => {
-    return () => {
-      if (transitionTimer.current) {
-        window.clearTimeout(transitionTimer.current);
-      }
-    };
-  }, []);
-
-  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!swipe) return;
-
-    // A text-entry target (a notebook's writing page) is deliberately NOT
-    // excluded here, unlike the keyboard handler below - a drag past
-    // SWIPE_THRESHOLD should still page-turn even while the textarea is
-    // focused, exactly like swiping off a button already does via
-    // isInteractiveTarget (which already includes textarea in its
-    // selector). A small tap-to-place-cursor never reaches the threshold,
-    // so ordinary text editing is unaffected.
-    pointerStart.current = {
-      interactive: isInteractiveTarget(event.target),
-      x: event.clientX,
-      y: event.clientY
-    };
-  };
-
-  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!swipe || !pointerStart.current) return;
-
-    const deltaX = event.clientX - pointerStart.current.x;
-    const deltaY = event.clientY - pointerStart.current.y;
-    const startedOnInteractive = pointerStart.current.interactive;
-    pointerStart.current = null;
-
-    if (
-      Math.abs(deltaX) < SWIPE_THRESHOLD &&
-      Math.abs(deltaY) < SWIPE_THRESHOLD
-    ) {
-      return;
-    }
-
-    if (startedOnInteractive) {
-      suppressClick.current = true;
-      window.setTimeout(() => {
-        suppressClick.current = false;
-      }, 250);
-    }
-
-    event.preventDefault();
-
-    if (Math.abs(deltaX) > Math.abs(deltaY)) {
-      navigate(deltaX < 0 ? "right" : "left");
-    } else {
-      navigate(deltaY < 0 ? "down" : "up");
-    }
-  };
-
   const content = useMemo(() => activePage?.render() ?? null, [activePage]);
 
   return (
     <main
       className="h-dvh w-screen touch-none overflow-hidden bg-background text-foreground"
-      onPointerDown={handlePointerDown}
-      onPointerCancel={() => {
-        pointerStart.current = null;
-      }}
-      onPointerUp={handlePointerUp}
       onClickCapture={(event) => {
         if (!suppressClick.current) return;
 
@@ -332,38 +502,76 @@ export function SwipeWorkspace({
         event.preventDefault();
         event.stopPropagation();
       }}
+      onPointerCancel={endGesture}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={endGesture}
     >
       <div className="relative h-full w-full overflow-hidden">
-        {transition ? (
-          <div key={transition.key}>
-            <Screen animationClass={getExitClass(transition.direction)}>
-              {transition.from}
+        <div className="absolute inset-0" ref={trackRef}>
+          {neighbours.previous ? (
+            <Screen offset={dragAxis === "y" ? "up" : "left"}>
+              {neighbours.previous.render()}
             </Screen>
-            <Screen animationClass={getEnterClass(transition.direction)}>
-              {transition.to}
-            </Screen>
-          </div>
-        ) : (
+          ) : null}
           <Screen>{content}</Screen>
-        )}
+          {neighbours.next ? (
+            <Screen offset={dragAxis === "y" ? "down" : "right"}>
+              {neighbours.next.render()}
+            </Screen>
+          ) : null}
+        </div>
       </div>
     </main>
   );
 }
 
 function Screen({
-  animationClass,
-  children
+  children,
+  offset
 }: {
-  animationClass?: string;
   children: ReactNode;
+  offset?: "down" | "left" | "right" | "up";
 }) {
+  const style: CSSProperties | undefined = offset
+    ? {
+        transform: {
+          down: "translate3d(0, 100%, 0)",
+          left: "translate3d(-100%, 0, 0)",
+          right: "translate3d(100%, 0, 0)",
+          up: "translate3d(0, -100%, 0)"
+        }[offset]
+      }
+    : undefined;
+
   return (
     <section
-      className={`absolute inset-0 h-dvh w-screen select-none bg-white dark:bg-neutral-950 ${animationClass ?? ""}`}
+      className="absolute inset-0 h-dvh w-screen select-none bg-white dark:bg-neutral-950"
+      style={style}
     >
       {children}
     </section>
+  );
+}
+
+// Pixels per millisecond over the tail of the gesture, so a quick flick
+// reads as intent even when it never travelled far.
+function velocityOf(samples: Array<{ position: number; time: number }>) {
+  if (samples.length < 2) return 0;
+
+  const last = samples[samples.length - 1];
+  const first = samples[0];
+  const elapsed = last.time - first.time;
+
+  if (elapsed < MIN_VELOCITY_WINDOW_MS) return 0;
+
+  return (last.position - first.position) / elapsed;
+}
+
+function prefersReducedMotion() {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
   );
 }
 
@@ -377,10 +585,6 @@ function getInitialPageMap(
       row.initialPageId ?? initialPageByRowId?.[row.id] ?? row.pages[0]?.id ?? ""
     ])
   );
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
 }
 
 function isInteractiveTarget(target: EventTarget | null) {
@@ -405,25 +609,5 @@ function matchesTarget(target: EventTarget | null, selector: string) {
         ? target.parentElement
         : null;
 
-  return element
-    ? Boolean(element.closest(selector))
-    : false;
-}
-
-function getExitClass(direction: Direction) {
-  return {
-    left: "screen-exit-right",
-    right: "screen-exit-left",
-    up: "screen-exit-down",
-    down: "screen-exit-up"
-  }[direction];
-}
-
-function getEnterClass(direction: Direction) {
-  return {
-    left: "screen-enter-left",
-    right: "screen-enter-right",
-    up: "screen-enter-up",
-    down: "screen-enter-down"
-  }[direction];
+  return element ? Boolean(element.closest(selector)) : false;
 }

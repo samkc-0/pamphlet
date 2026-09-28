@@ -168,53 +168,13 @@
     z-index: -1;
   }
 
-  .screen-enter-left {
-    animation: screen-enter-left 300ms ease-out both;
-    backface-visibility: hidden;
-    will-change: transform;
-  }
 
-  .screen-enter-right {
-    animation: screen-enter-right 300ms ease-out both;
-    backface-visibility: hidden;
-    will-change: transform;
-  }
 
-  .screen-enter-up {
-    animation: screen-enter-up 300ms ease-out both;
-    backface-visibility: hidden;
-    will-change: transform;
-  }
 
-  .screen-enter-down {
-    animation: screen-enter-down 300ms ease-out both;
-    backface-visibility: hidden;
-    will-change: transform;
-  }
 
-  .screen-exit-left {
-    animation: screen-exit-left 300ms ease-out both;
-    backface-visibility: hidden;
-    will-change: transform;
-  }
 
-  .screen-exit-right {
-    animation: screen-exit-right 300ms ease-out both;
-    backface-visibility: hidden;
-    will-change: transform;
-  }
 
-  .screen-exit-up {
-    animation: screen-exit-up 300ms ease-out both;
-    backface-visibility: hidden;
-    will-change: transform;
-  }
 
-  .screen-exit-down {
-    animation: screen-exit-down 300ms ease-out both;
-    backface-visibility: hidden;
-    will-change: transform;
-  }
 
   .loading-book-spin {
     animation: loading-book-spin 1.1s linear infinite;
@@ -230,77 +190,13 @@
     animation: glass-pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
-  @keyframes screen-enter-left {
-    from {
-      transform: translate3d(-100%, 0, 0);
-    }
-    to {
-      transform: translate3d(0, 0, 0);
-    }
-  }
 
-  @keyframes screen-enter-right {
-    from {
-      transform: translate3d(100%, 0, 0);
-    }
-    to {
-      transform: translate3d(0, 0, 0);
-    }
-  }
 
-  @keyframes screen-enter-up {
-    from {
-      transform: translate3d(0, -100%, 0);
-    }
-    to {
-      transform: translate3d(0, 0, 0);
-    }
-  }
 
-  @keyframes screen-enter-down {
-    from {
-      transform: translate3d(0, 100%, 0);
-    }
-    to {
-      transform: translate3d(0, 0, 0);
-    }
-  }
 
-  @keyframes screen-exit-left {
-    from {
-      transform: translate3d(0, 0, 0);
-    }
-    to {
-      transform: translate3d(-100%, 0, 0);
-    }
-  }
 
-  @keyframes screen-exit-right {
-    from {
-      transform: translate3d(0, 0, 0);
-    }
-    to {
-      transform: translate3d(100%, 0, 0);
-    }
-  }
 
-  @keyframes screen-exit-up {
-    from {
-      transform: translate3d(0, 0, 0);
-    }
-    to {
-      transform: translate3d(0, -100%, 0);
-    }
-  }
 
-  @keyframes screen-exit-down {
-    from {
-      transform: translate3d(0, 0, 0);
-    }
-    to {
-      transform: translate3d(0, 100%, 0);
-    }
-  }
 
   @keyframes loading-book-spin {
     to {
